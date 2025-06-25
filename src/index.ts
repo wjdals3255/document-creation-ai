@@ -12,7 +12,7 @@ import documentRoutes from './routes/documentRoutes'
 
 // Create Express app
 const app = express()
-const PORT = process.env.PORT || process.env.VERCEL_PORT || 3000
+const PORT = process.env.PORT || process.env.VERCEL_PORT || 8080
 
 // Middleware
 app.use(helmet()) // Security headers
