@@ -1,0 +1,24 @@
+{
+    "name": "document-creation-ai",
+    "version": "1.0.0",
+    "description": "공공데이터 문서 생성 AI 서버",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "yarn build",
+        "start": "node dist/index.js"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "build": {
+        "command": "yarn install && yarn build",
+        "output": "dist"
+    },
+    "deploy": {
+        "command": "yarn start"
+    },
+    "env": {
+        "NODE_ENV": "production",
+        "PORT": "8080"
+    }
+}
