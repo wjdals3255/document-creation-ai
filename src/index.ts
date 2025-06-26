@@ -112,32 +112,27 @@ app.post('/extract-hwp-to-pdf', upload.single('data'), async (req: any, res: any
 app.post('/extract-hwp-to-pdf-from-url', async (req: any, res: any) => {
   try {
     const { url } = req.body
-    if (!url) return res.status(400).json({ error: 'url이 필요합니다.' })
-    console.log('다운로드 시도:', url)
-
+    if (!url) {
+      return res.status(400).json({ error: 'url이 필요합니다.' })
+    }
+    // 파일 다운로드
     const response = await axios.get(url, { responseType: 'arraybuffer' })
-    console.log('다운로드 성공, 크기:', response.data.length)
-
     const fileBuffer = Buffer.from(response.data)
+    const fileBase64 = fileBuffer.toString('base64') // base64 문자열로 변환
     const fileName = `download_${Date.now()}.hwp`
     const filePath = path.join('uploads', fileName)
     fs.writeFileSync(filePath, fileBuffer)
-    console.log('파일 저장 완료:', filePath)
-
-    const text = await extractHwpText(filePath)
-    console.log('텍스트 추출 완료, 길이:', text.length)
-
+    // 텍스트 추출 (base64 문자열 전달)
+    const text = await extractHwpText(fileBase64)
     // PDF 생성
     const PDFDocument = require('pdfkit')
     const doc = new PDFDocument()
-    const pdfPath = filePath.replace(/\\.hwp$/, '.pdf')
+    const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
     const stream = fs.createWriteStream(pdfPath)
     doc.pipe(stream)
     doc.text(text)
     doc.end()
-
     stream.on('finish', () => {
-      console.log('PDF 생성 및 다운로드 준비 완료:', pdfPath)
       res.download(pdfPath, 'result.pdf', () => {
         fs.unlinkSync(pdfPath)
         fs.unlinkSync(filePath)
