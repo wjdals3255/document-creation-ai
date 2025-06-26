@@ -6,6 +6,7 @@ import multer from 'multer'
 import dotenv from 'dotenv'
 import { extractHwpText } from './extractHwpText'
 import { Request, Response, NextFunction } from 'express'
+import fs from 'fs'
 
 // Load environment variables
 dotenv.config()
@@ -22,6 +23,11 @@ app.use(morgan('combined')) // Logging
 app.use(express.json({ limit: '10mb' })) // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })) // Parse URL-encoded bodies
 
+// uploads 폴더가 없으면 자동 생성
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads')
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -33,9 +39,12 @@ app.get('/health', (req, res) => {
 })
 
 // HWP 텍스트 추출 API
-app.post('/extract-hwp-text', upload.single('data'), async (req: any, res: any) => {
-  const filePath = req.file.path
+app.post('/extract-hwp-text', (multer as any).single('data'), async (req: any, res: any) => {
   try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+    const filePath = req.file.path
     const text = await extractHwpText(filePath)
     res.json({ text })
   } catch (err: any) {
