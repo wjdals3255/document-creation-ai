@@ -9,11 +9,13 @@ export async function extractHwpText(filePath: string): Promise<string> {
   if (doc && doc.sections) {
     for (const section of doc.sections) {
       for (const key in section) {
-        const value = section[key]
-        if (Array.isArray(value)) {
-          for (const item of value) {
-            if (item && typeof item.text === 'string') {
-              text += item.text + '\n'
+        const value = (section as any)[key]
+        if (typeof value === 'object' && value !== null) {
+          if (Array.isArray(value)) {
+            for (const item of value) {
+              if (item && typeof item.text === 'string') {
+                text += item.text + '\n'
+              }
             }
           }
         }

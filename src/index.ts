@@ -33,8 +33,8 @@ app.get('/health', (req, res) => {
 })
 
 // HWP 텍스트 추출 API
-app.post('/extract-hwp-text', upload.single('data'), async (req: Request, res: Response) => {
-  const filePath = (req.file as Express.Multer.File).path
+app.post('/extract-hwp-text', upload.single('data'), async (req: any, res: any) => {
+  const filePath = req.file.path
   try {
     const text = await extractHwpText(filePath)
     res.json({ text })
