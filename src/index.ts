@@ -9,6 +9,7 @@ import { Request, Response, NextFunction } from 'express'
 import fs from 'fs'
 import path from 'path'
 import PDFDocument from 'pdfkit'
+import axios from 'axios'
 
 // Load environment variables
 dotenv.config()
@@ -96,6 +97,40 @@ app.post('/extract-hwp-to-pdf', upload.single('data'), async (req: any, res: any
     doc.text(text)
     doc.end()
 
+    stream.on('finish', () => {
+      res.download(pdfPath, 'result.pdf', () => {
+        fs.unlinkSync(pdfPath)
+        fs.unlinkSync(filePath)
+      })
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: 'PDF 변환 실패', detail: err.message })
+  }
+})
+
+// URL로 HWP 파일 다운로드 → 텍스트 추출 → PDF 변환 및 다운로드
+app.post('/extract-hwp-to-pdf-from-url', async (req: any, res: any) => {
+  try {
+    const { url } = req.body
+    if (!url) {
+      return res.status(400).json({ error: 'url이 필요합니다.' })
+    }
+    // 파일 다운로드
+    const response = await axios.get(url, { responseType: 'arraybuffer' })
+    const fileBuffer = Buffer.from(response.data)
+    const fileName = `download_${Date.now()}.hwp`
+    const filePath = path.join('uploads', fileName)
+    fs.writeFileSync(filePath, fileBuffer)
+    // 텍스트 추출
+    const text = await extractHwpText(filePath)
+    // PDF 생성
+    const PDFDocument = require('pdfkit')
+    const doc = new PDFDocument()
+    const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+    const stream = fs.createWriteStream(pdfPath)
+    doc.pipe(stream)
+    doc.text(text)
+    doc.end()
     stream.on('finish', () => {
       res.download(pdfPath, 'result.pdf', () => {
         fs.unlinkSync(pdfPath)
