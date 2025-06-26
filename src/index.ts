@@ -8,6 +8,7 @@ import { extractHwpText } from './extractHwpText'
 import { Request, Response, NextFunction } from 'express'
 import fs from 'fs'
 import path from 'path'
+import PDFDocument from 'pdfkit'
 
 // Load environment variables
 dotenv.config()
@@ -75,6 +76,34 @@ app.post('/extract-hwp-text-base64', async (req: any, res: any) => {
     res.json({ text })
   } catch (err: any) {
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+  }
+})
+
+// HWP 업로드 → 텍스트 추출 → PDF 변환 및 다운로드
+app.post('/extract-hwp-to-pdf', upload.single('data'), async (req: any, res: any) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+    const filePath = req.file.path
+    const text = await extractHwpText(filePath)
+
+    // PDF 생성
+    const doc = new PDFDocument()
+    const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+    const stream = fs.createWriteStream(pdfPath)
+    doc.pipe(stream)
+    doc.text(text)
+    doc.end()
+
+    stream.on('finish', () => {
+      res.download(pdfPath, 'result.pdf', () => {
+        fs.unlinkSync(pdfPath)
+        fs.unlinkSync(filePath)
+      })
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: 'PDF 변환 실패', detail: err.message })
   }
 })
 
