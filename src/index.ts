@@ -2,26 +2,22 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
+import multer from 'multer'
 import dotenv from 'dotenv'
+import { extractHwpText } from './extractHwpText'
+import { Request, Response, NextFunction } from 'express'
 
 // Load environment variables
 dotenv.config()
 
-// Import routes
-import documentRoutes from './routes/documentRoutes'
-
 // Create Express app
 const app = express()
-const PORT = process.env.PORT || process.env.VERCEL_PORT || 8080
+const upload = multer({ dest: 'uploads/' })
+const PORT = process.env.PORT || 8080
 
 // Middleware
 app.use(helmet()) // Security headers
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN || '*', // 프로덕션에서는 모든 도메인 허용
-    credentials: true
-  })
-)
+app.use(cors({ origin: '*', credentials: true }))
 app.use(morgan('combined')) // Logging
 app.use(express.json({ limit: '10mb' })) // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })) // Parse URL-encoded bodies
@@ -36,8 +32,16 @@ app.get('/health', (req, res) => {
   })
 })
 
-// API routes
-app.use('/api/v1/documents', documentRoutes)
+// HWP 텍스트 추출 API
+app.post('/extract-hwp-text', upload.single('data'), async (req: Request, res: Response) => {
+  const filePath = (req.file as Express.Multer.File).path
+  try {
+    const text = await extractHwpText(filePath)
+    res.json({ text })
+  } catch (err: any) {
+    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+  }
+})
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -48,11 +52,11 @@ app.use('*', (req, res) => {
 })
 
 // Error handler
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('Error:', err)
   res.status(500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    message: err.message
   })
 })
 
@@ -62,7 +66,7 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     console.log(`🚀 Server is running on port ${PORT}`)
     console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`)
     console.log(`🔗 Health check: http://localhost:${PORT}/health`)
-    console.log(`📄 API docs: http://localhost:${PORT}/api/v1/documents`)
+    console.log(`📄 HWP Extract: http://localhost:${PORT}/extract-hwp-text`)
   })
 }
 
