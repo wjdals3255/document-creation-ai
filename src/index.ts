@@ -7,6 +7,7 @@ import dotenv from 'dotenv'
 import { extractHwpText } from './extractHwpText'
 import { Request, Response, NextFunction } from 'express'
 import fs from 'fs'
+import path from 'path'
 
 // Load environment variables
 dotenv.config()
@@ -49,6 +50,27 @@ app.post('/extract-hwp-text', upload.single('data'), async (req: any, res: any) 
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
     }
     const filePath = req.file.path
+    const text = await extractHwpText(filePath)
+    res.json({ text })
+  } catch (err: any) {
+    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+  }
+})
+
+// base64 업로드용 HWP 텍스트 추출 API
+app.post('/extract-hwp-text-base64', async (req: any, res: any) => {
+  try {
+    const { data, filename } = req.body
+    if (!data) {
+      return res.status(400).json({ error: 'data 필드(base64 문자열)가 필요합니다.' })
+    }
+    // 파일명 지정 (없으면 임시 이름)
+    const saveName = filename || `upload_${Date.now()}.hwp`
+    const filePath = path.join('uploads', saveName)
+    // base64 디코딩 및 파일 저장
+    const fileBuffer = Buffer.from(data, 'base64')
+    fs.writeFileSync(filePath, fileBuffer)
+    // HWP 텍스트 추출
     const text = await extractHwpText(filePath)
     res.json({ text })
   } catch (err: any) {
