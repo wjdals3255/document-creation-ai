@@ -40,6 +40,10 @@ app.get('/health', (req, res) => {
 
 // HWP 텍스트 추출 API
 app.post('/extract-hwp-text', upload.single('data'), async (req: any, res: any) => {
+  console.log('==== /extract-hwp-text 호출됨 ====')
+  console.log('req.file:', req.file)
+  console.log('req.body:', req.body)
+  console.log('req.files:', req.files)
   try {
     if (!req.file) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
