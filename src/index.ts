@@ -10,6 +10,7 @@ import fs from 'fs'
 import path from 'path'
 import PDFDocument from 'pdfkit'
 import axios from 'axios'
+import fileType from 'file-type'
 
 // Load environment variables
 dotenv.config()
@@ -157,6 +158,12 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     const fileName = `download_${Date.now()}.hwp`
     const filePath = path.join('uploads', fileName)
     fs.writeFileSync(filePath, fileBuffer)
+    // 파일 타입 체크
+    const fileTypeResult = await fileType.fromBuffer(fileBuffer)
+    if (!fileTypeResult || fileTypeResult.ext !== 'hwp') {
+      fs.unlinkSync(filePath)
+      return res.status(400).json({ error: '업로드된 파일이 HWP 파일이 아닙니다.' })
+    }
     // 텍스트 추출
     const text = await extractHwpText(filePath)
     fs.unlinkSync(filePath)
