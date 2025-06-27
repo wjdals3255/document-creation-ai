@@ -159,11 +159,12 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     fs.writeFileSync(filePath, fileBuffer)
     // 텍스트 추출
     const text = await extractHwpText(filePath)
-    // 임시 파일 삭제(선택)
     fs.unlinkSync(filePath)
     res.json({ text })
   } catch (err: any) {
-    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+    // 에러 전체 로그 출력
+    console.error('텍스트 추출 실패:', err)
+    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message, stack: err.stack })
   }
 })
 
