@@ -164,8 +164,13 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     let ext = fileTypeResult ? (fileTypeResult.ext as string) : ''
     let text = ''
     let filePath = ''
-    // HWP: file-type이 hwp로 인식하거나, url/파일명에 .hwp가 포함되어 있으면 시도
-    if (ext === 'hwp' || url.toLowerCase().includes('.hwp') || (req.body.name && req.body.name.toLowerCase().includes('.hwp'))) {
+    // HWP: file-type이 hwp/cfb로 인식하거나, url/파일명에 .hwp가 포함되어 있으면 시도
+    if (
+      ext === 'hwp' ||
+      ext === 'cfb' ||
+      url.toLowerCase().includes('.hwp') ||
+      (req.body.name && req.body.name.toLowerCase().includes('.hwp'))
+    ) {
       filePath = path.join('uploads', fileName + '.hwp')
       fs.writeFileSync(filePath, fileBuffer)
       try {
