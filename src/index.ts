@@ -11,6 +11,9 @@ import path from 'path'
 import PDFDocument from 'pdfkit'
 import axios from 'axios'
 import fileType from 'file-type'
+import pdfParse from 'pdf-parse'
+import mammoth from 'mammoth'
+import XLSX from 'xlsx'
 
 // Load environment variables
 dotenv.config()
@@ -155,18 +158,46 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     // 파일 다운로드
     const response = await axios.get(url, { responseType: 'arraybuffer' })
     const fileBuffer = Buffer.from(response.data)
-    const fileName = `download_${Date.now()}.hwp`
-    const filePath = path.join('uploads', fileName)
-    fs.writeFileSync(filePath, fileBuffer)
-    // 파일 타입 체크
+    const fileName = `download_${Date.now()}`
     const fileTypeResult = await fileType.fromBuffer(fileBuffer)
-    if (!fileTypeResult || (fileTypeResult.ext as string) !== 'hwp') {
+    let ext = fileTypeResult ? (fileTypeResult.ext as string) : ''
+    let text = ''
+    let filePath = ''
+    // 확장자별로 파일 저장 및 텍스트 추출
+    if (ext === 'hwp') {
+      filePath = path.join('uploads', fileName + '.hwp')
+      fs.writeFileSync(filePath, fileBuffer)
+      text = await extractHwpText(filePath)
       fs.unlinkSync(filePath)
-      return res.status(400).json({ error: '업로드된 파일이 HWP 파일이 아닙니다.' })
+    } else if (ext === 'pdf') {
+      // PDF
+      text = (await pdfParse(fileBuffer)).text
+    } else if (ext === 'docx') {
+      // DOCX
+      filePath = path.join('uploads', fileName + '.docx')
+      fs.writeFileSync(filePath, fileBuffer)
+      const result = await mammoth.extractRawText({ path: filePath })
+      text = result.value
+      fs.unlinkSync(filePath)
+    } else if (ext === 'xlsx') {
+      // XLSX
+      filePath = path.join('uploads', fileName + '.xlsx')
+      fs.writeFileSync(filePath, fileBuffer)
+      const workbook = XLSX.readFile(filePath)
+      let xlsxText = ''
+      workbook.SheetNames.forEach((sheetName) => {
+        const worksheet = workbook.Sheets[sheetName]
+        const sheetText = XLSX.utils.sheet_to_csv(worksheet)
+        xlsxText += sheetText + '\n'
+      })
+      text = xlsxText
+      fs.unlinkSync(filePath)
+    } else if (ext === 'txt') {
+      // TXT
+      text = fileBuffer.toString('utf-8')
+    } else {
+      return res.status(400).json({ error: '지원하지 않는 파일 형식입니다.' })
     }
-    // 텍스트 추출
-    const text = await extractHwpText(filePath)
-    fs.unlinkSync(filePath)
     res.json({ text })
   } catch (err: any) {
     // 에러 전체 로그 출력
