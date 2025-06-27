@@ -160,7 +160,7 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     fs.writeFileSync(filePath, fileBuffer)
     // 파일 타입 체크
     const fileTypeResult = await fileType.fromBuffer(fileBuffer)
-    if (!fileTypeResult || fileTypeResult.ext !== 'hwp') {
+    if (!fileTypeResult || (fileTypeResult.ext as string) !== 'hwp') {
       fs.unlinkSync(filePath)
       return res.status(400).json({ error: '업로드된 파일이 HWP 파일이 아닙니다.' })
     }
