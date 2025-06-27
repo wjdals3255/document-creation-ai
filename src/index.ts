@@ -160,6 +160,7 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     const fileBuffer = Buffer.from(response.data)
     const fileName = `download_${Date.now()}`
     const fileTypeResult = await fileType.fromBuffer(fileBuffer)
+    console.log('fileTypeResult:', fileTypeResult) // file-type 결과 로그
     let ext = fileTypeResult ? (fileTypeResult.ext as string) : ''
     let text = ''
     let filePath = ''
@@ -170,8 +171,10 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
       try {
         text = await extractHwpText(filePath)
       } catch (e) {
+        const err = e as any
+        console.error('hwp.js 파싱 에러:', err) // hwp.js 파싱 에러 로그
         fs.unlinkSync(filePath)
-        return res.status(400).json({ error: '지원하지 않는 HWP 파일이거나, 파싱에 실패했습니다.' })
+        return res.status(400).json({ error: '지원하지 않는 HWP 파일이거나, 파싱에 실패했습니다.', detail: err.message, stack: err.stack })
       }
       fs.unlinkSync(filePath)
     } else if (ext === 'pdf') {
