@@ -144,6 +144,29 @@ app.post('/extract-hwp-to-pdf-from-url', async (req: any, res: any) => {
   }
 })
 
+// URL로 HWP 파일 다운로드 → 텍스트 추출 → 텍스트 반환
+app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
+  try {
+    const { url } = req.body
+    if (!url) {
+      return res.status(400).json({ error: 'url이 필요합니다.' })
+    }
+    // 파일 다운로드
+    const response = await axios.get(url, { responseType: 'arraybuffer' })
+    const fileBuffer = Buffer.from(response.data)
+    const fileName = `download_${Date.now()}.hwp`
+    const filePath = path.join('uploads', fileName)
+    fs.writeFileSync(filePath, fileBuffer)
+    // 텍스트 추출
+    const text = await extractHwpText(filePath)
+    // 임시 파일 삭제(선택)
+    fs.unlinkSync(filePath)
+    res.json({ text })
+  } catch (err: any) {
+    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+  }
+})
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
