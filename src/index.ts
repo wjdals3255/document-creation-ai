@@ -163,11 +163,16 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     let ext = fileTypeResult ? (fileTypeResult.ext as string) : ''
     let text = ''
     let filePath = ''
-    // 확장자별로 파일 저장 및 텍스트 추출
-    if (ext === 'hwp') {
+    // HWP: file-type이 hwp로 인식하거나, url/파일명에 .hwp가 포함되어 있으면 시도
+    if (ext === 'hwp' || url.toLowerCase().includes('.hwp') || (req.body.name && req.body.name.toLowerCase().includes('.hwp'))) {
       filePath = path.join('uploads', fileName + '.hwp')
       fs.writeFileSync(filePath, fileBuffer)
-      text = await extractHwpText(filePath)
+      try {
+        text = await extractHwpText(filePath)
+      } catch (e) {
+        fs.unlinkSync(filePath)
+        return res.status(400).json({ error: '지원하지 않는 HWP 파일이거나, 파싱에 실패했습니다.' })
+      }
       fs.unlinkSync(filePath)
     } else if (ext === 'pdf') {
       // PDF
