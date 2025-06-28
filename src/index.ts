@@ -178,7 +178,7 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
         // 1. LibreOffice로 PDF 변환
         const pdfPath = path.join('uploads', fileName + '.pdf')
         await new Promise((resolve, reject) => {
-          const cmd = `libreoffice --headless --convert-to pdf "${filePath}" --outdir "uploads"`
+          const cmd = `soffice --headless --convert-to pdf "${filePath}" --outdir "uploads"`
           exec(cmd, (error, stdout, stderr) => {
             if (error) return reject(error)
             resolve(true)
