@@ -15,6 +15,7 @@ import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import XLSX from 'xlsx'
 import { exec } from 'child_process'
+import hwpxRoutes from './routes/hwpxRoutes'
 
 // Load environment variables
 dotenv.config()
@@ -330,6 +331,8 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message, stack: err.stack })
   }
 })
+
+app.use(hwpxRoutes)
 
 // 404 handler
 app.use('*', (req, res) => {
