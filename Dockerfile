@@ -14,4 +14,7 @@ COPY . .
 
 RUN yarn build
 
+# uploads 디렉토리 생성 및 권한 설정
+RUN mkdir -p /app/uploads && chmod 777 /app/uploads
+
 CMD ["node", "dist/index.js"] 
