@@ -64,24 +64,57 @@ app.post('/extract-hwp-text', upload.single('data'), async (req: any, res: any) 
   }
 })
 
-// base64 업로드용 HWP 텍스트 추출 API
+// Hancom OAuth2 토큰 발급 함수
+async function getHancomAccessToken() {
+  const clientId = '5WRG3mFySToKYS4CkoqB'
+  const clientSecret = 'slfUCDJ4s3'
+  const tokenUrl = 'https://api.hancomdocs.com/oauth2/v2.0/token'
+
+  const params = new URLSearchParams()
+  params.append('grant_type', 'client_credentials')
+  params.append('client_id', clientId)
+  params.append('client_secret', clientSecret)
+
+  const res = await axios.post(tokenUrl, params, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  })
+  return res.data.access_token
+}
+
+// Hancom HWP → TXT 변환 함수
+async function hancomHwpToText(fileBuffer: Buffer, filename: string, accessToken: string) {
+  const apiUrl = 'https://api.hancomdocs.com/v1.0/convert/txt'
+  const res = await axios.post(apiUrl, fileBuffer, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/octet-stream',
+      Accept: 'application/json'
+    },
+    params: { fileName: filename }
+  })
+  return res.data // 변환된 텍스트
+}
+
+// base64 업로드용 HWP 텍스트 추출 API (한컴 API 연동)
 app.post('/extract-hwp-text-base64', async (req: any, res: any) => {
   try {
     const { data, filename } = req.body
     if (!data) {
       return res.status(400).json({ error: 'data 필드(base64 문자열)가 필요합니다.' })
     }
-    // 파일명 지정 (없으면 임시 이름)
     const saveName = filename || `upload_${Date.now()}.hwp`
-    const filePath = path.join('uploads', saveName)
-    // base64 디코딩 및 파일 저장
     const fileBuffer = Buffer.from(data, 'base64')
-    fs.writeFileSync(filePath, fileBuffer)
-    // HWP 텍스트 추출
-    const text = await extractHwpText(filePath)
-    res.json({ text })
+
+    // 1. 한컴 OAuth2 토큰 발급
+    const accessToken = await getHancomAccessToken()
+
+    // 2. 한컴 API로 HWP → TXT 변환
+    const hancomResult = await hancomHwpToText(fileBuffer, saveName, accessToken)
+
+    // 3. 결과 반환
+    res.json({ text: hancomResult })
   } catch (err: any) {
-    console.error('extract-hwp-text-base64 에러 상세:', err) // 상세 에러 로그 추가
+    console.error('extract-hwp-text-base64 한컴 API 에러 상세:', err?.response?.data || err)
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
   }
 })
