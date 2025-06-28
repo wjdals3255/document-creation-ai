@@ -326,9 +326,8 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     }
     res.json({ text })
   } catch (err: any) {
-    // 에러 전체 로그 출력
     console.error('텍스트 추출 실패:', err)
-    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message, stack: err.stack })
+    res.status(500).json({ error: '텍스트 추출 실패', message: err.message, stack: err.stack, detail: err })
   }
 })
 
