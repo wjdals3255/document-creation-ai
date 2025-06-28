@@ -81,6 +81,7 @@ app.post('/extract-hwp-text-base64', async (req: any, res: any) => {
     const text = await extractHwpText(filePath)
     res.json({ text })
   } catch (err: any) {
+    console.error('extract-hwp-text-base64 에러 상세:', err) // 상세 에러 로그 추가
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
   }
 })
