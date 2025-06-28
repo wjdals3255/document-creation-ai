@@ -68,7 +68,7 @@ app.post('/extract-hwp-text', upload.single('data'), async (req: any, res: any) 
 async function getHancomAccessToken() {
   const clientId = '5WRG3mFySToKYS4CkoqB'
   const clientSecret = 'slfUCDJ4s3'
-  const tokenUrl = 'https://api.hancomdocs.com/oauth2/v2.0/token'
+  const tokenUrl = 'https://api.hancomdocs.com/oauth2/token'
 
   const params = new URLSearchParams()
   params.append('grant_type', 'client_credentials')
