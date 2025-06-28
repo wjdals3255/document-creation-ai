@@ -174,77 +174,91 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
     ) {
       filePath = path.join('uploads', fileName + '.hwp')
       fs.writeFileSync(filePath, fileBuffer)
+
       try {
-        // 1. LibreOffice로 PDF 변환 (더 자세한 옵션 추가)
-        const pdfPath = path.join('uploads', fileName + '.pdf')
-        console.log(`LibreOffice 변환 시작: ${filePath} -> ${pdfPath}`)
-
-        await new Promise((resolve, reject) => {
-          // 더 자세한 옵션으로 LibreOffice 실행
-          const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export "${filePath}" --outdir "uploads" 2>&1`
-          console.log(`실행 명령어: ${cmd}`)
-
-          exec(cmd, (error, stdout, stderr) => {
-            console.log(`LibreOffice stdout: ${stdout}`)
-            console.log(`LibreOffice stderr: ${stderr}`)
-
-            if (error) {
-              console.error(`LibreOffice 에러: ${error.message}`)
-              return reject(error)
-            }
-
-            // PDF 파일이 실제로 생성되었는지 확인
-            if (!fs.existsSync(pdfPath)) {
-              console.error(`PDF 파일이 생성되지 않음: ${pdfPath}`)
-              return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
-            }
-
-            console.log(`PDF 변환 성공: ${pdfPath}`)
-            resolve(true)
-          })
-        })
-
-        // 2. PDF에서 텍스트 추출
-        const pdfBuffer = fs.readFileSync(pdfPath)
-        text = (await pdfParse(pdfBuffer)).text
-
-        if (!text || text.trim().length === 0) {
-          console.warn('PDF에서 추출된 텍스트가 비어있습니다.')
-          text = '텍스트를 추출할 수 없습니다. (빈 문서이거나 변환 실패)'
-        }
-
-        // 3. 임시 파일 정리
-        fs.unlinkSync(filePath)
-        fs.unlinkSync(pdfPath)
-      } catch (e) {
-        const err = e as any
-        console.error('LibreOffice/HWP 파싱 에러:', err)
+        // 1. 먼저 hwp.js로 직접 파싱 시도
+        console.log('hwp.js로 직접 파싱 시도...')
+        const hwp = require('hwp.js')
+        const hwpText = await hwp.parse(fileBuffer.toString('base64'))
+        text = hwpText
+        console.log('hwp.js 파싱 성공')
 
         // 임시 파일 정리
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-        const pdfPath = path.join('uploads', fileName + '.pdf')
-        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+        fs.unlinkSync(filePath)
+      } catch (hwpError) {
+        console.error('hwp.js 파싱 실패:', hwpError)
 
-        // 대안: 파일을 그대로 텍스트로 읽어보기 (바이너리 데이터를 텍스트로 해석)
         try {
-          console.log('LibreOffice 실패, 대안 방법 시도...')
-          const alternativeText = fileBuffer.toString('utf-8', 0, Math.min(fileBuffer.length, 10000))
-          if (alternativeText && alternativeText.trim().length > 0) {
-            text = `[변환 실패 - 원본 데이터 일부]\n${alternativeText.substring(0, 1000)}...`
-          } else {
-            text = 'HWP 파일을 텍스트로 변환할 수 없습니다. LibreOffice 변환에 실패했습니다.'
-          }
-        } catch (altErr) {
-          console.error('대안 방법도 실패:', altErr)
-          text = 'HWP 파일을 텍스트로 변환할 수 없습니다. LibreOffice 변환에 실패했습니다.'
-        }
+          // 2. hwp.js 실패 시 LibreOffice로 PDF 변환 시도
+          console.log('LibreOffice 변환 시도...')
+          const pdfPath = path.join('uploads', fileName + '.pdf')
+          console.log(`LibreOffice 변환 시작: ${filePath} -> ${pdfPath}`)
 
-        return res.status(400).json({
-          error: 'LibreOffice 또는 HWP 파싱에 실패했습니다.',
-          detail: err.message,
-          stack: err.stack,
-          text: text // 부분적으로라도 텍스트가 있으면 반환
-        })
+          await new Promise((resolve, reject) => {
+            // 더 자세한 옵션으로 LibreOffice 실행
+            const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export "${filePath}" --outdir "uploads" 2>&1`
+            console.log(`실행 명령어: ${cmd}`)
+
+            exec(cmd, (error, stdout, stderr) => {
+              console.log(`LibreOffice stdout: ${stdout}`)
+              console.log(`LibreOffice stderr: ${stderr}`)
+
+              if (error) {
+                console.error(`LibreOffice 에러: ${error.message}`)
+                return reject(error)
+              }
+
+              // PDF 파일이 실제로 생성되었는지 확인
+              if (!fs.existsSync(pdfPath)) {
+                console.error(`PDF 파일이 생성되지 않음: ${pdfPath}`)
+                return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+              }
+
+              console.log(`PDF 변환 성공: ${pdfPath}`)
+              resolve(true)
+            })
+          })
+
+          // 3. PDF에서 텍스트 추출
+          const pdfBuffer = fs.readFileSync(pdfPath)
+          text = (await pdfParse(pdfBuffer)).text
+
+          if (!text || text.trim().length === 0) {
+            console.warn('PDF에서 추출된 텍스트가 비어있습니다.')
+            text = '텍스트를 추출할 수 없습니다. (빈 문서이거나 변환 실패)'
+          }
+
+          // 4. 임시 파일 정리
+          fs.unlinkSync(filePath)
+          fs.unlinkSync(pdfPath)
+        } catch (libreOfficeError) {
+          console.error('LibreOffice 변환도 실패:', libreOfficeError)
+
+          // 임시 파일 정리
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+          const pdfPath = path.join('uploads', fileName + '.pdf')
+          if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+
+          // 5. 최종 대안: 파일을 그대로 텍스트로 읽어보기
+          try {
+            console.log('모든 방법 실패, 최종 대안 시도...')
+            const alternativeText = fileBuffer.toString('utf-8', 0, Math.min(fileBuffer.length, 10000))
+            if (alternativeText && alternativeText.trim().length > 0) {
+              text = `[변환 실패 - 원본 데이터 일부]\n${alternativeText.substring(0, 1000)}...`
+            } else {
+              text = 'HWP 파일을 텍스트로 변환할 수 없습니다. 모든 변환 방법이 실패했습니다.'
+            }
+          } catch (altErr) {
+            console.error('최종 대안 방법도 실패:', altErr)
+            text = 'HWP 파일을 텍스트로 변환할 수 없습니다. 모든 변환 방법이 실패했습니다.'
+          }
+
+          return res.status(400).json({
+            error: 'HWP 파일 변환에 실패했습니다.',
+            detail: `hwp.js: ${(hwpError as any).message}, LibreOffice: ${(libreOfficeError as any).message}`,
+            text: text // 부분적으로라도 텍스트가 있으면 반환
+          })
+        }
       }
     } else if (ext === 'pdf') {
       // PDF
