@@ -14,6 +14,7 @@ import fileType from 'file-type'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import XLSX from 'xlsx'
+import { exec } from 'child_process'
 
 // Load environment variables
 dotenv.config()
@@ -174,14 +175,29 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
       filePath = path.join('uploads', fileName + '.hwp')
       fs.writeFileSync(filePath, fileBuffer)
       try {
-        text = await extractHwpText(filePath)
+        // 1. LibreOffice로 PDF 변환
+        const pdfPath = path.join('uploads', fileName + '.pdf')
+        await new Promise((resolve, reject) => {
+          const cmd = `libreoffice --headless --convert-to pdf "${filePath}" --outdir "uploads"`
+          exec(cmd, (error, stdout, stderr) => {
+            if (error) return reject(error)
+            resolve(true)
+          })
+        })
+        // 2. PDF에서 텍스트 추출
+        const pdfBuffer = fs.readFileSync(pdfPath)
+        text = (await pdfParse(pdfBuffer)).text
+        // 3. 임시 파일 정리
+        fs.unlinkSync(filePath)
+        fs.unlinkSync(pdfPath)
       } catch (e) {
         const err = e as any
-        console.error('hwp.js 파싱 에러:', err) // hwp.js 파싱 에러 로그
-        fs.unlinkSync(filePath)
-        return res.status(400).json({ error: '지원하지 않는 HWP 파일이거나, 파싱에 실패했습니다.', detail: err.message, stack: err.stack })
+        console.error('LibreOffice/HWP 파싱 에러:', err)
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+        const pdfPath = path.join('uploads', fileName + '.pdf')
+        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+        return res.status(400).json({ error: 'LibreOffice 또는 HWP 파싱에 실패했습니다.', detail: err.message, stack: err.stack })
       }
-      fs.unlinkSync(filePath)
     } else if (ext === 'pdf') {
       // PDF
       text = (await pdfParse(fileBuffer)).text
