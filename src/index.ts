@@ -149,10 +149,14 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
 
       // hwpResult를 문자열로 변환
       const hwpText = String(hwpResult || '')
+      console.log('hwp.js 파싱 결과 길이:', hwpText.length)
+      console.log('hwp.js 파싱 결과 샘플:', hwpText.substring(0, 100))
 
       if (hwpText && hwpText.trim() && hwpText.length > 50) {
         console.log('개선된 hwp.js 파싱 성공, 길이:', hwpText.length)
         return hwpText
+      } else {
+        console.log('hwp.js 파싱 결과가 너무 짧거나 비어있음')
       }
     } catch (hwpError: any) {
       console.log('개선된 hwp.js 파싱 실패:', hwpError.message)
@@ -165,13 +169,17 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       const text = await extractHwpTextWithImprovedEncoding(fileBuffer)
       if (text && text.trim() && text.length > 50) {
         console.log('한글 인코딩 개선 파싱 성공, 길이:', text.length)
+        console.log('한글 인코딩 개선 파싱 결과 샘플:', text.substring(0, 100))
         return text
+      } else {
+        console.log('한글 인코딩 개선 파싱 결과가 너무 짧거나 비어있음')
       }
     } catch (encodingError: any) {
       console.log('한글 인코딩 개선 파싱 실패:', encodingError.message)
     }
 
     // 3. LibreOffice 설치 확인 (백업)
+    console.log('LibreOffice 설치 확인 시작...')
     const { exec } = require('child_process')
 
     return new Promise((resolve, reject) => {
