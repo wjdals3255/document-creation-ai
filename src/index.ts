@@ -145,42 +145,53 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
     const { exec } = require('child_process')
 
     return new Promise((resolve, reject) => {
-      exec(
-        `libreoffice --headless --convert-to docx "${filePath}" --outdir "${path.dirname(filePath)}"`,
-        (error: any, stdout: any, stderr: any) => {
-          if (error) {
-            console.log('LibreOffice 변환 실패:', error.message)
-            // 방법 2: Pandoc 사용
-            exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
-              if (pandocError) {
-                console.log('Pandoc 변환도 실패:', pandocError.message)
-                // 변환 실패 시 기존 방식으로 fallback
-                extractHwpText(filePath).then(resolve).catch(reject)
-                return
-              }
+      // macOS에서는 soffice 명령어 사용
+      const libreOfficeCmd = process.platform === 'darwin' ? '/Applications/LibreOffice.app/Contents/MacOS/soffice' : 'libreoffice'
 
-              // DOCX 파일이 생성되었는지 확인
-              if (fs.existsSync(docxPath)) {
-                console.log('Pandoc으로 DOCX 변환 성공')
-                processDocxFileForHwp(docxPath, filePath).then(resolve).catch(reject)
-              } else {
-                console.log('DOCX 파일 생성 실패, 기존 방식으로 fallback')
-                extractHwpText(filePath).then(resolve).catch(reject)
-              }
-            })
-          } else {
-            // LibreOffice 변환 성공
-            console.log('LibreOffice로 DOCX 변환 성공')
-            const generatedDocxPath = filePath.replace(/\.hwp$/, '.docx')
-            if (fs.existsSync(generatedDocxPath)) {
-              processDocxFileForHwp(generatedDocxPath, filePath).then(resolve).catch(reject)
+      const cmd = `${libreOfficeCmd} --headless --convert-to docx "${filePath}" --outdir "${path.dirname(filePath)}"`
+      console.log('LibreOffice 명령어:', cmd)
+
+      exec(cmd, (error: any, stdout: any, stderr: any) => {
+        console.log('LibreOffice stdout:', stdout)
+        console.log('LibreOffice stderr:', stderr)
+
+        if (error) {
+          console.log('LibreOffice 변환 실패:', error.message)
+          // 방법 2: Pandoc 사용
+          exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
+            console.log('Pandoc stdout:', pandocStdout)
+            console.log('Pandoc stderr:', pandocStderr)
+
+            if (pandocError) {
+              console.log('Pandoc 변환도 실패:', pandocError.message)
+              // 변환 실패 시 기존 방식으로 fallback
+              console.log('기존 extractHwpText 방식으로 fallback')
+              extractHwpText(filePath).then(resolve).catch(reject)
+              return
+            }
+
+            // DOCX 파일이 생성되었는지 확인
+            if (fs.existsSync(docxPath)) {
+              console.log('Pandoc으로 DOCX 변환 성공')
+              processDocxFileForHwp(docxPath, filePath).then(resolve).catch(reject)
             } else {
-              console.log('DOCX 파일을 찾을 수 없음, 기존 방식으로 fallback')
+              console.log('DOCX 파일 생성 실패, 기존 방식으로 fallback')
               extractHwpText(filePath).then(resolve).catch(reject)
             }
+          })
+        } else {
+          // LibreOffice 변환 성공
+          console.log('LibreOffice로 DOCX 변환 성공')
+          const generatedDocxPath = filePath.replace(/\.hwp$/, '.docx')
+          if (fs.existsSync(generatedDocxPath)) {
+            console.log('생성된 DOCX 파일:', generatedDocxPath)
+            processDocxFileForHwp(generatedDocxPath, filePath).then(resolve).catch(reject)
+          } else {
+            console.log('DOCX 파일을 찾을 수 없음, 기존 방식으로 fallback')
+            extractHwpText(filePath).then(resolve).catch(reject)
           }
         }
-      )
+      })
     })
   } catch (conversionError: any) {
     console.log('변환 중 오류:', conversionError.message)

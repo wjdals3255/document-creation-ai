@@ -1,9 +1,17 @@
 FROM node:20
 
-# LibreOffice 설치
+# 시스템 패키지 업데이트 및 LibreOffice 설치
 RUN apt-get update && \
-    apt-get install -y libreoffice && \
-    apt-get clean
+    apt-get install -y \
+    libreoffice \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# LibreOffice 설치 확인
+RUN libreoffice --version || echo "LibreOffice 설치 확인"
 
 WORKDIR /app
 
