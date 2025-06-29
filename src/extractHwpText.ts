@@ -155,27 +155,64 @@ export async function extractHwpText(filePath: string): Promise<string> {
   }
 }
 
-// HWP 바이너리에서 텍스트 추출하는 간단한 함수
+// HWP 바이너리에서 텍스트 추출하는 개선된 함수
 function extractTextFromHwpBinary(buffer: Buffer): string {
   try {
-    const bufferString = buffer.toString('utf-8', 0, Math.min(buffer.length, 10000))
+    console.log('바이너리 파싱 개선 시도...')
 
-    // 한글 텍스트 패턴 찾기 (간단한 방법)
-    const koreanPattern = /[가-힣]+/g
-    const matches = bufferString.match(koreanPattern)
+    // 방법 1: UTF-8 인코딩 시도
+    try {
+      const utf8String = buffer.toString('utf-8')
+      const koreanPattern = /[가-힣]+/g
+      const utf8Matches = utf8String.match(koreanPattern)
 
-    if (matches && matches.length > 0) {
-      return matches.join(' ')
+      if (utf8Matches && utf8Matches.length > 0) {
+        console.log('UTF-8 인코딩으로 한글 텍스트 추출 성공:', utf8Matches.length, '개')
+        return utf8Matches.join(' ')
+      }
+    } catch (utf8Error) {
+      console.log('UTF-8 인코딩 실패:', utf8Error)
     }
 
-    // UTF-8로 다시 시도
-    const utf8String = buffer.toString('utf-8')
-    const utf8Matches = utf8String.match(koreanPattern)
+    // 방법 2: 바이너리에서 직접 한글 패턴 찾기 (더 정교한 방법)
+    try {
+      const koreanBytes = []
+      for (let i = 0; i < buffer.length - 1; i++) {
+        const byte1 = buffer[i]
+        const byte2 = buffer[i + 1]
 
-    if (utf8Matches && utf8Matches.length > 0) {
-      return utf8Matches.join(' ')
+        // 한글 완성형 코드 (EUC-KR 기준)
+        if (byte1 >= 0xb0 && byte1 <= 0xc8 && byte2 >= 0xa1 && byte2 <= 0xfe) {
+          koreanBytes.push(byte1, byte2)
+        }
+      }
+
+      if (koreanBytes.length > 0) {
+        // EUC-KR 대신 UTF-8로 시도
+        const koreanBuffer = Buffer.from(koreanBytes)
+        const koreanText = koreanBuffer.toString('utf-8')
+        console.log('바이너리 직접 파싱으로 한글 텍스트 추출 성공:', koreanText.length)
+        return koreanText
+      }
+    } catch (binaryError) {
+      console.log('바이너리 직접 파싱 실패:', binaryError)
     }
 
+    // 방법 3: 전체 버퍼에서 한글 패턴 찾기
+    try {
+      const bufferString = buffer.toString('utf-8', 0, Math.min(buffer.length, 50000))
+      const koreanPattern = /[가-힣]+/g
+      const matches = bufferString.match(koreanPattern)
+
+      if (matches && matches.length > 0) {
+        console.log('전체 버퍼에서 한글 텍스트 추출 성공:', matches.length, '개')
+        return matches.join(' ')
+      }
+    } catch (bufferError) {
+      console.log('전체 버퍼 파싱 실패:', bufferError)
+    }
+
+    console.log('모든 인코딩 방법 실패')
     return ''
   } catch (error) {
     console.log('바이너리 텍스트 추출 중 오류:', error)
