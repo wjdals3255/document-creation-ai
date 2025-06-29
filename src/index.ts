@@ -140,7 +140,7 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
   try {
     console.log('HWP → DOCX 변환 시작:', originalName)
 
-    // 먼저 개선된 hwp.js 파싱 시도
+    // 1. 개선된 hwp.js 파싱 시도 (우선)
     console.log('개선된 hwp.js 파싱 시도...')
     try {
       const fileBuffer = fs.readFileSync(filePath)
@@ -158,7 +158,20 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       console.log('개선된 hwp.js 파싱 실패:', hwpError.message)
     }
 
-    // LibreOffice 설치 확인
+    // 2. 한글 인코딩 개선된 바이너리 파싱 시도
+    console.log('한글 인코딩 개선된 바이너리 파싱 시도...')
+    try {
+      const fileBuffer = fs.readFileSync(filePath)
+      const text = await extractHwpTextWithImprovedEncoding(fileBuffer)
+      if (text && text.trim() && text.length > 50) {
+        console.log('한글 인코딩 개선 파싱 성공, 길이:', text.length)
+        return text
+      }
+    } catch (encodingError: any) {
+      console.log('한글 인코딩 개선 파싱 실패:', encodingError.message)
+    }
+
+    // 3. LibreOffice 설치 확인 (백업)
     const { exec } = require('child_process')
 
     return new Promise((resolve, reject) => {
@@ -239,6 +252,43 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
     console.log('변환 중 오류:', conversionError.message)
     // 변환 실패 시 기존 방식으로 fallback
     return extractHwpText(filePath)
+  }
+}
+
+// 한글 인코딩 개선된 HWP 텍스트 추출 함수
+async function extractHwpTextWithImprovedEncoding(fileBuffer: Buffer): Promise<string> {
+  try {
+    // 여러 인코딩 방식으로 시도
+    const encodings = ['utf8', 'euc-kr', 'cp949', 'iso-8859-1']
+
+    for (const encoding of encodings) {
+      try {
+        const text = fileBuffer.toString(encoding as BufferEncoding)
+
+        // 한글 문자가 포함되어 있는지 확인
+        const koreanChars = text.match(/[가-힣]/g)
+        if (koreanChars && koreanChars.length > 10) {
+          console.log(`${encoding} 인코딩으로 한글 텍스트 추출 성공: ${koreanChars.length} 개`)
+
+          // 텍스트 정리 (특수문자 제거, 공백 정리)
+          const cleanedText = text
+            .replace(/[^\w\s가-힣]/g, ' ') // 한글, 영문, 숫자, 공백만 유지
+            .replace(/\s+/g, ' ') // 연속된 공백을 하나로
+            .trim()
+
+          if (cleanedText.length > 50) {
+            return cleanedText
+          }
+        }
+      } catch (e) {
+        console.log(`${encoding} 인코딩 실패:`, e)
+      }
+    }
+
+    throw new Error('모든 인코딩 시도 실패')
+  } catch (error: any) {
+    console.log('한글 인코딩 개선 파싱 실패:', error.message)
+    throw error
   }
 }
 
