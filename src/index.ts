@@ -147,9 +147,12 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       const hwp = require('hwp.js')
       const hwpResult = await hwp.parse(fileBuffer.toString('base64'))
 
-      if (hwpResult && hwpResult.trim() && hwpResult.length > 50) {
-        console.log('개선된 hwp.js 파싱 성공, 길이:', hwpResult.length)
-        return hwpResult
+      // hwpResult를 문자열로 변환
+      const hwpText = String(hwpResult || '')
+
+      if (hwpText && hwpText.trim() && hwpText.length > 50) {
+        console.log('개선된 hwp.js 파싱 성공, 길이:', hwpText.length)
+        return hwpText
       }
     } catch (hwpError: any) {
       console.log('개선된 hwp.js 파싱 실패:', hwpError.message)
@@ -159,63 +162,78 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
     const { exec } = require('child_process')
 
     return new Promise((resolve, reject) => {
-      // LibreOffice 설치 확인
-      exec('which libreoffice', (checkError: any, checkStdout: any, checkStderr: any) => {
-        console.log('LibreOffice 설치 확인 결과:', checkStdout || 'not found')
+      // LibreOffice 설치 확인 (여러 경로 시도)
+      const checkCommands = ['which libreoffice', 'which soffice', 'ls /usr/bin/libreoffice', 'ls /usr/bin/soffice']
 
-        if (checkError || !checkStdout.trim()) {
+      let checkIndex = 0
+
+      function checkLibreOffice() {
+        if (checkIndex >= checkCommands.length) {
           console.log('LibreOffice가 설치되지 않았습니다. 기존 방식으로 fallback')
           extractHwpText(filePath).then(resolve).catch(reject)
           return
         }
 
-        // LibreOffice 사용
-        const docxPath = filePath.replace(/\.hwp$/, '.docx')
-        const cmd = `libreoffice --headless --convert-to docx "${filePath}" --outdir "${path.dirname(filePath)}"`
-        console.log('LibreOffice 명령어:', cmd)
+        const cmd = checkCommands[checkIndex]
+        console.log(`LibreOffice 확인 시도 ${checkIndex + 1}: ${cmd}`)
 
-        exec(cmd, (error: any, stdout: any, stderr: any) => {
-          console.log('LibreOffice stdout:', stdout)
-          console.log('LibreOffice stderr:', stderr)
+        exec(cmd, (checkError: any, checkStdout: any, checkStderr: any) => {
+          console.log(`LibreOffice 확인 결과 ${checkIndex + 1}:`, checkStdout || 'not found')
 
-          if (error) {
-            console.log('LibreOffice 변환 실패:', error.message)
-            // 방법 2: Pandoc 사용
-            exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
-              console.log('Pandoc stdout:', pandocStdout)
-              console.log('Pandoc stderr:', pandocStderr)
+          if (!checkError && checkStdout && checkStdout.trim()) {
+            // LibreOffice 발견, 변환 시도
+            const libreOfficeCmd = checkStdout.trim()
+            const docxPath = filePath.replace(/\.hwp$/, '.docx')
+            const convertCmd = `${libreOfficeCmd} --headless --convert-to docx "${filePath}" --outdir "${path.dirname(filePath)}"`
+            console.log('LibreOffice 변환 명령어:', convertCmd)
 
-              if (pandocError) {
-                console.log('Pandoc 변환도 실패:', pandocError.message)
-                // 변환 실패 시 기존 방식으로 fallback
-                console.log('기존 extractHwpText 방식으로 fallback')
-                extractHwpText(filePath).then(resolve).catch(reject)
-                return
-              }
+            exec(convertCmd, (error: any, stdout: any, stderr: any) => {
+              console.log('LibreOffice stdout:', stdout)
+              console.log('LibreOffice stderr:', stderr)
 
-              // DOCX 파일이 생성되었는지 확인
-              if (fs.existsSync(docxPath)) {
-                console.log('Pandoc으로 DOCX 변환 성공')
-                processDocxFileForHwp(docxPath, filePath).then(resolve).catch(reject)
+              if (error) {
+                console.log('LibreOffice 변환 실패:', error.message)
+                // Pandoc 시도
+                exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
+                  console.log('Pandoc stdout:', pandocStdout)
+                  console.log('Pandoc stderr:', pandocStderr)
+
+                  if (pandocError) {
+                    console.log('Pandoc 변환도 실패:', pandocError.message)
+                    console.log('기존 extractHwpText 방식으로 fallback')
+                    extractHwpText(filePath).then(resolve).catch(reject)
+                    return
+                  }
+
+                  if (fs.existsSync(docxPath)) {
+                    console.log('Pandoc으로 DOCX 변환 성공')
+                    processDocxFileForHwp(docxPath, filePath).then(resolve).catch(reject)
+                  } else {
+                    console.log('DOCX 파일 생성 실패, 기존 방식으로 fallback')
+                    extractHwpText(filePath).then(resolve).catch(reject)
+                  }
+                })
               } else {
-                console.log('DOCX 파일 생성 실패, 기존 방식으로 fallback')
-                extractHwpText(filePath).then(resolve).catch(reject)
+                console.log('LibreOffice로 DOCX 변환 성공')
+                const generatedDocxPath = filePath.replace(/\.hwp$/, '.docx')
+                if (fs.existsSync(generatedDocxPath)) {
+                  console.log('생성된 DOCX 파일:', generatedDocxPath)
+                  processDocxFileForHwp(generatedDocxPath, filePath).then(resolve).catch(reject)
+                } else {
+                  console.log('DOCX 파일을 찾을 수 없음, 기존 방식으로 fallback')
+                  extractHwpText(filePath).then(resolve).catch(reject)
+                }
               }
             })
           } else {
-            // LibreOffice 변환 성공
-            console.log('LibreOffice로 DOCX 변환 성공')
-            const generatedDocxPath = filePath.replace(/\.hwp$/, '.docx')
-            if (fs.existsSync(generatedDocxPath)) {
-              console.log('생성된 DOCX 파일:', generatedDocxPath)
-              processDocxFileForHwp(generatedDocxPath, filePath).then(resolve).catch(reject)
-            } else {
-              console.log('DOCX 파일을 찾을 수 없음, 기존 방식으로 fallback')
-              extractHwpText(filePath).then(resolve).catch(reject)
-            }
+            // 다음 확인 명령어 시도
+            checkIndex++
+            checkLibreOffice()
           }
         })
-      })
+      }
+
+      checkLibreOffice()
     })
   } catch (conversionError: any) {
     console.log('변환 중 오류:', conversionError.message)
