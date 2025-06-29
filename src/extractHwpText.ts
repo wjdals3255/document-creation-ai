@@ -4,6 +4,8 @@ import { parse as parseHwp } from 'hwp.js'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import XLSX from 'xlsx'
+import AdmZip from 'adm-zip'
+import { parseStringPromise } from 'xml2js'
 
 export async function extractHwpText(filePath: string): Promise<string> {
   const buffer = fs.readFileSync(filePath)
@@ -51,10 +53,43 @@ export async function extractHwpText(filePath: string): Promise<string> {
         result += csv + '\n'
       })
       return result.trim()
+    } else if (ext === 'txt' || ext === 'csv') {
+      // TXT, CSV
+      return buffer.toString('utf-8').trim()
+    } else if (ext === 'hwpx' || filePath.endsWith('.hwpx')) {
+      // HWPX (압축 해제 후 Contents.xml 파싱)
+      const zip = new AdmZip(filePath)
+      const contentsXmlEntry = zip.getEntry('Contents.xml')
+      if (!contentsXmlEntry) throw new Error('HWPX: Contents.xml을 찾을 수 없습니다.')
+      const contentsXml = contentsXmlEntry.getData().toString('utf-8')
+      const xml = await parseStringPromise(contentsXml, { explicitArray: false })
+      // 본문 텍스트 추출 (섹션 > 문단 > 텍스트)
+      let hwpxText = ''
+      try {
+        const body = xml?.HWPML?.BODY
+        const sections = Array.isArray(body?.SECTION) ? body.SECTION : [body?.SECTION]
+        for (const section of sections) {
+          const paragraphs = Array.isArray(section?.P) ? section.P : [section?.P]
+          for (const p of paragraphs) {
+            if (p && p['#text']) {
+              hwpxText += p['#text'] + '\n'
+            } else if (p && p.RUN) {
+              const runs = Array.isArray(p.RUN) ? p.RUN : [p.RUN]
+              for (const run of runs) {
+                if (run['#text']) hwpxText += run['#text']
+              }
+              hwpxText += '\n'
+            }
+          }
+        }
+      } catch (e) {
+        throw new Error('HWPX 본문 텍스트 추출 중 오류: ' + e)
+      }
+      return hwpxText.trim()
     } else {
       throw new Error(`지원하지 않는 파일 형식입니다: ${ext}`)
     }
   } catch (err: any) {
-    throw new Error(`파일 파싱 실패: ${err.message}`)
+    throw new Error(`파일 파싱 실패: ${err && err.message ? err.message : '지원하지 않는 파일이거나 파싱에 실패했습니다.'}`)
   }
 }
