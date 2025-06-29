@@ -20,30 +20,78 @@ export async function extractHwpText(filePath: string): Promise<string> {
 
   try {
     if (ext === 'hwp' || ext === 'cfb') {
-      // HWP(구버전, 바이너리)
-      const base64 = buffer.toString('base64')
-      const doc = parseHwp(base64 as any)
-      if (doc && doc.sections) {
-        for (const section of doc.sections) {
-          for (const key in section) {
-            const value = (section as any)[key]
-            if (typeof value === 'object' && value !== null) {
-              if (Array.isArray(value)) {
-                for (const item of value) {
-                  if (item && typeof item.text === 'string') {
-                    text += item.text + '\n'
+      // HWP(구버전, 바이너리) - 개선된 파싱
+      console.log('HWP 파일 파싱 시작...')
+
+      try {
+        // 방법 1: hwp.js로 파싱 시도
+        const base64 = buffer.toString('base64')
+        const doc = parseHwp(base64 as any)
+
+        if (doc && doc.sections) {
+          console.log('hwp.js 파싱 성공, 섹션 수:', doc.sections.length)
+
+          for (const section of doc.sections) {
+            for (const key in section) {
+              const value = (section as any)[key]
+              if (typeof value === 'object' && value !== null) {
+                if (Array.isArray(value)) {
+                  for (const item of value) {
+                    if (item && typeof item.text === 'string') {
+                      text += item.text + '\n'
+                    }
                   }
                 }
               }
             }
           }
+
+          if (text.trim()) {
+            console.log('hwp.js로 텍스트 추출 성공, 길이:', text.length)
+            return text.trim()
+          }
         }
+      } catch (hwpError: any) {
+        console.log('hwp.js 파싱 실패:', hwpError.message)
       }
-      return text.trim()
+
+      // 방법 2: 바이너리 직접 파싱 시도 (간단한 텍스트 추출)
+      try {
+        console.log('바이너리 직접 파싱 시도...')
+        const textFromBinary = extractTextFromHwpBinary(buffer)
+        if (textFromBinary.trim()) {
+          console.log('바이너리 파싱으로 텍스트 추출 성공, 길이:', textFromBinary.length)
+          return textFromBinary.trim()
+        }
+      } catch (binaryError: any) {
+        console.log('바이너리 파싱 실패:', binaryError.message)
+      }
+
+      // 방법 3: 파일이 비어있지 않은 경우 기본 메시지
+      if (buffer.length > 0) {
+        console.log('HWP 파일이 감지되었으나 텍스트 추출에 실패했습니다.')
+        return 'HWP 파일이 감지되었으나 텍스트 추출에 실패했습니다. 한컴 API를 사용하거나 파일을 다시 확인해주세요.'
+      }
+
+      throw new Error('HWP 파일 파싱에 실패했습니다.')
     } else if (ext === 'pdf') {
-      // PDF
-      const data = await pdfParse(buffer)
-      return data.text.trim()
+      // PDF - 개선된 파싱
+      console.log('PDF 파일 파싱 시작...')
+      try {
+        const data = await pdfParse(buffer)
+        const extractedText = data.text.trim()
+
+        if (extractedText) {
+          console.log('PDF 텍스트 추출 성공, 길이:', extractedText.length)
+          return extractedText
+        } else {
+          console.log('PDF에서 텍스트를 추출할 수 없습니다. 이미지 기반 PDF일 가능성이 높습니다.')
+          return 'PDF에서 텍스트를 추출할 수 없습니다. 이미지 기반 PDF의 경우 OCR이 필요합니다.'
+        }
+      } catch (pdfError: any) {
+        console.log('PDF 파싱 실패:', pdfError.message)
+        throw new Error(`PDF 파싱 실패: ${pdfError.message}`)
+      }
     } else if (ext === 'docx') {
       // DOCX
       const result = await mammoth.extractRawText({ buffer })
@@ -104,5 +152,33 @@ export async function extractHwpText(filePath: string): Promise<string> {
     }
   } catch (err: any) {
     throw new Error(`파일 파싱 실패: ${err && err.message ? err.message : '지원하지 않는 파일이거나 파싱에 실패했습니다.'}`)
+  }
+}
+
+// HWP 바이너리에서 텍스트 추출하는 간단한 함수
+function extractTextFromHwpBinary(buffer: Buffer): string {
+  try {
+    const bufferString = buffer.toString('utf-8', 0, Math.min(buffer.length, 10000))
+
+    // 한글 텍스트 패턴 찾기 (간단한 방법)
+    const koreanPattern = /[가-힣]+/g
+    const matches = bufferString.match(koreanPattern)
+
+    if (matches && matches.length > 0) {
+      return matches.join(' ')
+    }
+
+    // UTF-8로 다시 시도
+    const utf8String = buffer.toString('utf-8')
+    const utf8Matches = utf8String.match(koreanPattern)
+
+    if (utf8Matches && utf8Matches.length > 0) {
+      return utf8Matches.join(' ')
+    }
+
+    return ''
+  } catch (error) {
+    console.log('바이너리 텍스트 추출 중 오류:', error)
+    return ''
   }
 }

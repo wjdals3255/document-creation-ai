@@ -47,7 +47,7 @@ app.get('/health', (req, res) => {
   })
 })
 
-// HWP 텍스트 추출 API
+// HWP 텍스트 추출 API (기존 버전)
 app.post('/extract-hwp-text', upload.array('data'), async (req: any, res: any) => {
   console.log('==== /extract-hwp-text 호출됨 ====')
   console.log('req.files:', req.files)
@@ -60,6 +60,58 @@ app.post('/extract-hwp-text', upload.array('data'), async (req: any, res: any) =
       req.files.map(async (file: any) => {
         try {
           const text = await extractHwpText(file.path)
+          return { filename: file.originalname, text }
+        } catch (err: any) {
+          return { filename: file.originalname, error: err.message }
+        }
+      })
+    )
+    res.json({ results })
+  } catch (err: any) {
+    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+  }
+})
+
+// HWP 텍스트 추출 API (개선된 버전 - 한컴 API 자동 시도)
+app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, res: any) => {
+  console.log('==== /extract-hwp-text-enhanced 호출됨 ====')
+  console.log('req.files:', req.files)
+  console.log('req.body:', req.body)
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+
+    const results = await Promise.all(
+      req.files.map(async (file: any) => {
+        try {
+          // 먼저 로컬 파싱 시도
+          let text = await extractHwpText(file.path)
+
+          // HWP 파일이고 텍스트가 비어있거나 실패 메시지인 경우 한컴 API 시도
+          if (file.originalname.toLowerCase().endsWith('.hwp') && (!text || text.includes('실패') || text.includes('한컴 API'))) {
+            console.log('한컴 API 시도 중...')
+            try {
+              const fileBuffer = fs.readFileSync(file.path)
+              const base64Data = fileBuffer.toString('base64')
+
+              // 한컴 OAuth2 토큰 발급
+              const accessToken = await getHancomAccessToken()
+
+              // 한컴 API로 HWP → TXT 변환
+              const hancomResult = await hancomHwpToText(fileBuffer, file.originalname, accessToken)
+
+              if (hancomResult && hancomResult.trim()) {
+                console.log('한컴 API 성공!')
+                text = hancomResult
+              } else {
+                console.log('한컴 API도 실패')
+              }
+            } catch (hancomError: any) {
+              console.log('한컴 API 에러:', hancomError.message)
+            }
+          }
+
           return { filename: file.originalname, text }
         } catch (err: any) {
           return { filename: file.originalname, error: err.message }
