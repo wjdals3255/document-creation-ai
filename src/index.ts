@@ -72,7 +72,7 @@ app.post('/extract-hwp-text', upload.array('data'), async (req: any, res: any) =
   }
 })
 
-// HWP 텍스트 추출 API (개선된 버전 - 한컴 API 자동 시도)
+// HWP 텍스트 추출 API (개선된 버전 - HWP는 DOCX 변환 후 처리)
 app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, res: any) => {
   console.log('==== /extract-hwp-text-enhanced 호출됨 ====')
   console.log('req.files:', req.files)
@@ -85,8 +85,16 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
     const results = await Promise.all(
       req.files.map(async (file: any) => {
         try {
-          // 먼저 로컬 파싱 시도
-          let text = await extractHwpText(file.path)
+          let text = ''
+
+          // HWP 파일인 경우 DOCX 변환 후 처리
+          if (file.originalname.toLowerCase().endsWith('.hwp')) {
+            console.log('HWP 파일 감지, DOCX 변환 시도...')
+            text = await convertHwpToText(file.path, file.originalname)
+          } else {
+            // 다른 파일들은 기존 방식으로 처리
+            text = await extractHwpText(file.path)
+          }
 
           // HWP 파일이고 텍스트가 비어있거나 실패 메시지인 경우 한컴 API 시도
           if (
@@ -126,6 +134,83 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
   }
 })
+
+// HWP → DOCX → 텍스트 변환 함수
+async function convertHwpToText(filePath: string, originalName: string): Promise<string> {
+  try {
+    console.log('HWP → DOCX 변환 시작:', originalName)
+    const docxPath = filePath.replace(/\.hwp$/, '.docx')
+
+    // 방법 1: LibreOffice 사용 (무료, 오픈소스)
+    const { exec } = require('child_process')
+
+    return new Promise((resolve, reject) => {
+      exec(
+        `libreoffice --headless --convert-to docx "${filePath}" --outdir "${path.dirname(filePath)}"`,
+        (error: any, stdout: any, stderr: any) => {
+          if (error) {
+            console.log('LibreOffice 변환 실패:', error.message)
+            // 방법 2: Pandoc 사용
+            exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
+              if (pandocError) {
+                console.log('Pandoc 변환도 실패:', pandocError.message)
+                // 변환 실패 시 기존 방식으로 fallback
+                extractHwpText(filePath).then(resolve).catch(reject)
+                return
+              }
+
+              // DOCX 파일이 생성되었는지 확인
+              if (fs.existsSync(docxPath)) {
+                console.log('Pandoc으로 DOCX 변환 성공')
+                processDocxFileForHwp(docxPath, filePath).then(resolve).catch(reject)
+              } else {
+                console.log('DOCX 파일 생성 실패, 기존 방식으로 fallback')
+                extractHwpText(filePath).then(resolve).catch(reject)
+              }
+            })
+          } else {
+            // LibreOffice 변환 성공
+            console.log('LibreOffice로 DOCX 변환 성공')
+            const generatedDocxPath = filePath.replace(/\.hwp$/, '.docx')
+            if (fs.existsSync(generatedDocxPath)) {
+              processDocxFileForHwp(generatedDocxPath, filePath).then(resolve).catch(reject)
+            } else {
+              console.log('DOCX 파일을 찾을 수 없음, 기존 방식으로 fallback')
+              extractHwpText(filePath).then(resolve).catch(reject)
+            }
+          }
+        }
+      )
+    })
+  } catch (conversionError: any) {
+    console.log('변환 중 오류:', conversionError.message)
+    // 변환 실패 시 기존 방식으로 fallback
+    return extractHwpText(filePath)
+  }
+}
+
+// HWP용 DOCX 파일 처리 함수
+async function processDocxFileForHwp(docxPath: string, originalFilePath: string): Promise<string> {
+  try {
+    const docxBuffer = fs.readFileSync(docxPath)
+    const result = await mammoth.extractRawText({ buffer: docxBuffer })
+    const text = result.value.trim()
+
+    // 임시 파일들 정리
+    try {
+      fs.unlinkSync(docxPath)
+    } catch (e) {
+      console.log('DOCX 파일 삭제 실패:', e)
+    }
+
+    console.log('HWP → DOCX → 텍스트 변환 성공, 길이:', text.length)
+    return text
+  } catch (docxError: any) {
+    console.log('DOCX 처리 실패:', docxError.message)
+    // DOCX 처리 실패 시 기존 방식으로 fallback
+    return extractHwpText(originalFilePath)
+  }
+}
 
 // Hancom OAuth2 토큰 발급 함수
 async function getHancomAccessToken() {
