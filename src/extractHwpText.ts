@@ -13,6 +13,11 @@ export async function extractHwpText(filePath: string): Promise<string> {
   const ext = type?.ext || filePath.split('.').pop()?.toLowerCase() || ''
   let text = ''
 
+  console.log('파일 경로:', filePath)
+  console.log('감지된 파일 형식:', type?.ext)
+  console.log('파일 확장자:', filePath.split('.').pop()?.toLowerCase())
+  console.log('최종 사용 확장자:', ext)
+
   try {
     if (ext === 'hwp' || ext === 'cfb') {
       // HWP(구버전, 바이너리)
@@ -87,6 +92,14 @@ export async function extractHwpText(filePath: string): Promise<string> {
       }
       return hwpxText.trim()
     } else {
+      // 파일 형식이 감지되지 않은 경우, 파일 확장자로 재시도
+      const fallbackExt = filePath.split('.').pop()?.toLowerCase()
+      console.log('파일 형식 감지 실패, 확장자로 재시도:', fallbackExt)
+
+      if (fallbackExt === 'txt' || fallbackExt === 'csv') {
+        return buffer.toString('utf-8').trim()
+      }
+
       throw new Error(`지원하지 않는 파일 형식입니다: ${ext}`)
     }
   } catch (err: any) {
