@@ -270,14 +270,33 @@ async function extractHwpTextWithImprovedEncoding(fileBuffer: Buffer): Promise<s
         if (koreanChars && koreanChars.length > 10) {
           console.log(`${encoding} 인코딩으로 한글 텍스트 추출 성공: ${koreanChars.length} 개`)
 
-          // 텍스트 정리 (특수문자 제거, 공백 정리)
+          // 텍스트 정리 (바이너리 데이터 제거, 한글 문장만 추출)
           const cleanedText = text
-            .replace(/[^\w\s가-힣]/g, ' ') // 한글, 영문, 숫자, 공백만 유지
+            // 바이너리 패턴 제거
+            .replace(/[A-Za-z0-9]{20,}/g, ' ') // 20자 이상의 연속된 영숫자 제거
+            .replace(/[0-9A-Fa-f]{8,}/g, ' ') // 8자 이상의 16진수 패턴 제거
+            .replace(/[A-Za-z]{3,}\s+[A-Za-z]{3,}/g, ' ') // 연속된 영문 단어 제거
+            // 한글, 영문, 숫자, 공백, 기본 문장부호만 유지
+            .replace(/[^\w\s가-힣.,!?;:()[\]{}"'\-]/g, ' ')
             .replace(/\s+/g, ' ') // 연속된 공백을 하나로
             .trim()
 
-          if (cleanedText.length > 50) {
-            return cleanedText
+          // 한글 문장이 포함된 부분만 추출
+          const sentences = cleanedText
+            .split(/[.!?]/)
+            .filter((sentence) => {
+              const koreanInSentence = sentence.match(/[가-힣]/g)
+              return koreanInSentence && koreanInSentence.length >= 3
+            })
+            .map((sentence) => sentence.trim())
+            .filter((sentence) => sentence.length > 5)
+
+          if (sentences.length > 0) {
+            const result = sentences.join('. ').trim()
+            if (result.length > 50) {
+              console.log('한글 문장 추출 성공:', sentences.length, '개 문장')
+              return result
+            }
           }
         }
       } catch (e) {
