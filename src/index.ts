@@ -147,8 +147,16 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       const hwp = require('hwp.js')
       const hwpResult = await hwp.parse(fileBuffer.toString('base64'))
 
-      // hwpResult를 문자열로 변환
-      const hwpText = String(hwpResult || '')
+      // hwpResult가 객체인 경우 처리
+      let hwpText = ''
+      if (typeof hwpResult === 'object' && hwpResult !== null) {
+        // 객체의 모든 값을 문자열로 변환하여 추출
+        hwpText = JSON.stringify(hwpResult)
+        console.log('hwp.js 객체 결과를 JSON으로 변환')
+      } else {
+        hwpText = String(hwpResult || '')
+      }
+
       console.log('hwp.js 파싱 결과 길이:', hwpText.length)
       console.log('hwp.js 파싱 결과 샘플:', hwpText.substring(0, 100))
 
@@ -266,8 +274,8 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
 // 한글 인코딩 개선된 HWP 텍스트 추출 함수
 async function extractHwpTextWithImprovedEncoding(fileBuffer: Buffer): Promise<string> {
   try {
-    // 여러 인코딩 방식으로 시도
-    const encodings = ['utf8', 'euc-kr', 'cp949', 'iso-8859-1']
+    // 지원되는 인코딩만 사용
+    const encodings = ['utf8', 'ascii', 'latin1']
 
     for (const encoding of encodings) {
       try {
@@ -278,26 +286,27 @@ async function extractHwpTextWithImprovedEncoding(fileBuffer: Buffer): Promise<s
         if (koreanChars && koreanChars.length > 10) {
           console.log(`${encoding} 인코딩으로 한글 텍스트 추출 성공: ${koreanChars.length} 개`)
 
-          // 텍스트 정리 (바이너리 데이터 제거, 한글 문장만 추출)
+          // 더 강력한 텍스트 정리 (바이너리 데이터 제거, 한글 문장만 추출)
           const cleanedText = text
-            // 바이너리 패턴 제거
-            .replace(/[A-Za-z0-9]{20,}/g, ' ') // 20자 이상의 연속된 영숫자 제거
-            .replace(/[0-9A-Fa-f]{8,}/g, ' ') // 8자 이상의 16진수 패턴 제거
-            .replace(/[A-Za-z]{3,}\s+[A-Za-z]{3,}/g, ' ') // 연속된 영문 단어 제거
+            // 바이너리 패턴 제거 (더 강력하게)
+            .replace(/[A-Za-z0-9]{15,}/g, ' ') // 15자 이상의 연속된 영숫자 제거
+            .replace(/[0-9A-Fa-f]{6,}/g, ' ') // 6자 이상의 16진수 패턴 제거
+            .replace(/[A-Za-z]{2,}\s+[A-Za-z]{2,}/g, ' ') // 연속된 영문 단어 제거
+            .replace(/[A-Za-z0-9]{3,}[^가-힣\s]{3,}/g, ' ') // 한글이 아닌 연속된 문자 제거
             // 한글, 영문, 숫자, 공백, 기본 문장부호만 유지
             .replace(/[^\w\s가-힣.,!?;:()[\]{}"'\-]/g, ' ')
             .replace(/\s+/g, ' ') // 연속된 공백을 하나로
             .trim()
 
-          // 한글 문장이 포함된 부분만 추출
+          // 한글 문장이 포함된 부분만 추출 (더 엄격하게)
           const sentences = cleanedText
             .split(/[.!?]/)
             .filter((sentence) => {
               const koreanInSentence = sentence.match(/[가-힣]/g)
-              return koreanInSentence && koreanInSentence.length >= 3
+              return koreanInSentence && koreanInSentence.length >= 5 // 최소 5개 한글 문자
             })
             .map((sentence) => sentence.trim())
-            .filter((sentence) => sentence.length > 5)
+            .filter((sentence) => sentence.length > 10) // 최소 10자
 
           if (sentences.length > 0) {
             const result = sentences.join('. ').trim()
