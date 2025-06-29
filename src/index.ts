@@ -393,6 +393,91 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
   }
 })
 
+// HWP → DOCX 변환 후 텍스트 추출 API
+app.post('/convert-hwp-to-docx', upload.single('data'), async (req: any, res: any) => {
+  console.log('==== /convert-hwp-to-docx 호출됨 ====')
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+
+    const filePath = req.file.path
+    const originalName = req.file.originalname
+    const docxPath = filePath.replace(/\.hwp$/, '.docx')
+
+    console.log('HWP → DOCX 변환 시작:', originalName)
+
+    try {
+      // 방법 1: LibreOffice 사용 (무료, 오픈소스)
+      const { exec } = require('child_process')
+
+      // LibreOffice 설치 확인 및 변환
+      exec(
+        `libreoffice --headless --convert-to docx "${filePath}" --outdir "${path.dirname(filePath)}"`,
+        (error: any, stdout: any, stderr: any) => {
+          if (error) {
+            console.log('LibreOffice 변환 실패:', error.message)
+            // 방법 2: Pandoc 사용
+            exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
+              if (pandocError) {
+                console.log('Pandoc 변환도 실패:', pandocError.message)
+                return res.status(500).json({
+                  error: 'HWP → DOCX 변환에 실패했습니다. LibreOffice 또는 Pandoc이 필요합니다.',
+                  detail: '서버에 LibreOffice 또는 Pandoc을 설치해주세요.'
+                })
+              }
+
+              // DOCX 파일이 생성되었는지 확인
+              if (fs.existsSync(docxPath)) {
+                console.log('Pandoc으로 DOCX 변환 성공')
+                processDocxFile(docxPath, res, filePath)
+              } else {
+                res.status(500).json({ error: 'DOCX 파일 생성에 실패했습니다.' })
+              }
+            })
+          } else {
+            // LibreOffice 변환 성공
+            console.log('LibreOffice로 DOCX 변환 성공')
+            const generatedDocxPath = filePath.replace(/\.hwp$/, '.docx')
+            if (fs.existsSync(generatedDocxPath)) {
+              processDocxFile(generatedDocxPath, res, filePath)
+            } else {
+              res.status(500).json({ error: 'DOCX 파일을 찾을 수 없습니다.' })
+            }
+          }
+        }
+      )
+    } catch (conversionError: any) {
+      console.log('변환 중 오류:', conversionError.message)
+      res.status(500).json({ error: '변환 중 오류가 발생했습니다.', detail: conversionError.message })
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: 'HWP → DOCX 변환 실패', detail: err.message })
+  }
+})
+
+// DOCX 파일 처리 함수
+async function processDocxFile(docxPath: string, res: any, originalFilePath: string) {
+  try {
+    const docxBuffer = fs.readFileSync(docxPath)
+    const result = await mammoth.extractRawText({ buffer: docxBuffer })
+    const text = result.value.trim()
+
+    // 임시 파일들 정리
+    fs.unlinkSync(docxPath)
+    fs.unlinkSync(originalFilePath)
+
+    res.json({
+      success: true,
+      text: text,
+      message: 'HWP → DOCX → 텍스트 변환 성공'
+    })
+  } catch (docxError: any) {
+    console.log('DOCX 처리 실패:', docxError.message)
+    res.status(500).json({ error: 'DOCX 파일 처리에 실패했습니다.', detail: docxError.message })
+  }
+}
+
 app.use(hwpxRoutes)
 
 // 404 handler
