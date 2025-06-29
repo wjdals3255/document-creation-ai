@@ -7,6 +7,14 @@ import XLSX from 'xlsx'
 import AdmZip from 'adm-zip'
 import { parseStringPromise } from 'xml2js'
 
+// node-hwp 라이브러리 추가
+let nodeHwp: any = null
+try {
+  nodeHwp = require('node-hwp')
+} catch (error) {
+  console.log('node-hwp 라이브러리를 불러올 수 없습니다:', error)
+}
+
 export async function extractHwpText(filePath: string): Promise<string> {
   const buffer = fs.readFileSync(filePath)
   const type = await fileType.fromBuffer(buffer)
@@ -22,6 +30,20 @@ export async function extractHwpText(filePath: string): Promise<string> {
     if (ext === 'hwp' || ext === 'cfb') {
       // HWP(구버전, 바이너리) - 개선된 파싱
       console.log('HWP 파일 파싱 시작...')
+
+      // 방법 0: node-hwp로 파싱 시도 (새로 추가)
+      if (nodeHwp) {
+        try {
+          console.log('node-hwp 파싱 시도...')
+          const nodeHwpResult = await nodeHwp.parse(buffer)
+          if (nodeHwpResult && nodeHwpResult.text && nodeHwpResult.text.trim()) {
+            console.log('node-hwp 파싱 성공, 길이:', nodeHwpResult.text.length)
+            return nodeHwpResult.text.trim()
+          }
+        } catch (nodeHwpError: any) {
+          console.log('node-hwp 파싱 실패:', nodeHwpError.message)
+        }
+      }
 
       try {
         // 방법 1: hwp.js로 파싱 시도
