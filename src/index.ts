@@ -48,18 +48,25 @@ app.get('/health', (req, res) => {
 })
 
 // HWP 텍스트 추출 API
-app.post('/extract-hwp-text', upload.single('data'), async (req: any, res: any) => {
+app.post('/extract-hwp-text', upload.array('data'), async (req: any, res: any) => {
   console.log('==== /extract-hwp-text 호출됨 ====')
-  console.log('req.file:', req.file)
-  console.log('req.body:', req.body)
   console.log('req.files:', req.files)
+  console.log('req.body:', req.body)
   try {
-    if (!req.file) {
+    if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
     }
-    const filePath = req.file.path
-    const text = await extractHwpText(filePath)
-    res.json({ text })
+    const results = await Promise.all(
+      req.files.map(async (file: any) => {
+        try {
+          const text = await extractHwpText(file.path)
+          return { filename: file.originalname, text }
+        } catch (err: any) {
+          return { filename: file.originalname, error: err.message }
+        }
+      })
+    )
+    res.json({ results })
   } catch (err: any) {
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
   }
