@@ -89,7 +89,10 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
           let text = await extractHwpText(file.path)
 
           // HWP 파일이고 텍스트가 비어있거나 실패 메시지인 경우 한컴 API 시도
-          if (file.originalname.toLowerCase().endsWith('.hwp') && (!text || text.includes('실패') || text.includes('한컴 API'))) {
+          if (
+            file.originalname.toLowerCase().endsWith('.hwp') &&
+            (!text || text.includes('실패') || text.includes('한컴 API') || text.length < 10)
+          ) {
             console.log('한컴 API 시도 중...')
             try {
               const fileBuffer = fs.readFileSync(file.path)
