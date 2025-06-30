@@ -1,315 +1,175 @@
 # Document Creation AI Server
 
-Node.js + TypeScript로 구축된 공공데이터 문서 자동 변환/추출 서버입니다.
+공공데이터 문서 자동 변환/추출 서버입니다. 다양한 문서 포맷(HWP, HWPX, PDF, DOCX, XLSX, TXT, CSV 등)에서 텍스트를 추출할 수 있습니다.
 
-## 🚀 기능
+## 🚀 주요 기능
 
-- 문서 CRUD 작업 (생성, 조회, 수정, 삭제)
-- RESTful API
-- TypeScript 지원
-- CORS 설정
-- 보안 헤더 (Helmet)
-- 로깅 (Morgan)
-- 에러 핸들링
+### 📄 **지원 파일 형식**
 
-## 📋 요구사항
+- **HWP** → PDF → 텍스트 추출 (MS Word Mac 연동)
+- **HWPX** → 텍스트 추출
+- **PDF** → 텍스트 추출 (OCR 지원)
+- **DOCX** → 텍스트 추출
+- **XLSX** → 텍스트 추출
+- **TXT, CSV** → 텍스트 추출
 
-- Node.js 16+
-- Yarn
+### 🎯 **HWP 파일 처리 방식**
+
+#### **Mac 환경 (권장)**
+
+1. **로컬 MS Word** → AppleScript로 자동 제어
+2. **Microsoft Graph API** → 온라인 Word 변환 (fallback)
+3. **LibreOffice** → 최종 fallback
+
+#### **다른 환경**
+
+1. **LibreOffice** → HWP → PDF → 텍스트
+2. **한컴 API** → HWP → PDF → 텍스트 (fallback)
 
 ## 🛠️ 설치 및 실행
 
 ### 1. 의존성 설치
 
 ```bash
-yarn install
+npm install
 ```
 
-### 2. 환경 변수 설정
+### 2. 환경 설정 (선택사항)
 
-`.env` 파일을 생성하고 다음 내용을 추가하세요:
+#### **Microsoft Graph API 설정 (Mac 환경에서 더 안정적인 변환을 위해)**
 
-```env
-# Server Configuration
-PORT=8080
-NODE_ENV=production
-
-# CORS Configuration
-CORS_ORIGIN=https://your-frontend-domain.com
-
-# API Configuration
-API_PREFIX=/api/v1
-
-# Logging
-LOG_LEVEL=info
-```
-
-### 3. 개발 서버 실행
+1. [Microsoft Azure Portal](https://portal.azure.com)에서 앱 등록
+2. Microsoft Graph API 권한 추가
+3. 환경변수 설정:
 
 ```bash
-yarn dev
+# .env 파일 생성
+cp env.example .env
+
+# .env 파일 편집
+MICROSOFT_CLIENT_ID=your-client-id
+MICROSOFT_CLIENT_SECRET=your-client-secret
+MICROSOFT_TENANT_ID=your-tenant-id
 ```
 
-### 4. 프로덕션 빌드
+### 3. 서버 실행
 
 ```bash
-yarn build
-yarn start
+npm run dev
 ```
 
-## 📚 API 문서
+서버가 `http://localhost:8080`에서 실행됩니다.
 
-### 기본 URL
+## 📡 API 엔드포인트
 
-```
-http://localhost:8080/api/v1
-```
-
-### 엔드포인트
-
-#### 1. 헬스 체크
-
-```
-GET /health
-```
-
-#### 2. 문서 관리
-
-**모든 문서 조회**
-
-```
-GET /api/v1/documents
-```
-
-**특정 문서 조회**
-
-```
-GET /api/v1/documents/:id
-```
-
-**새 문서 생성**
-
-```
-POST /api/v1/documents
-Content-Type: application/json
-
-{
-  "title": "문서 제목",
-  "content": "문서 내용",
-  "type": "general",
-  "status": "draft",
-  "metadata": {
-    "author": "작성자",
-    "department": "부서",
-    "tags": ["태그1", "태그2"]
-  }
-}
-```
-
-**문서 수정**
-
-```
-PUT /api/v1/documents/:id
-Content-Type: application/json
-
-{
-  "title": "수정된 제목",
-  "content": "수정된 내용"
-}
-```
-
-**문서 삭제**
-
-```
-DELETE /api/v1/documents/:id
-```
-
-## 📁 프로젝트 구조
-
-```
-src/
-├── controllers/     # 컨트롤러
-├── middleware/      # 미들웨어
-├── routes/          # 라우터
-├── types/           # TypeScript 타입 정의
-├── utils/           # 유틸리티 함수
-└── index.ts         # 메인 진입점
-```
-
-## 🔧 개발
-
-### 스크립트
-
-- `yarn dev`: 개발 서버 실행 (nodemon)
-- `yarn build`: TypeScript 컴파일
-- `yarn start`: 프로덕션 서버 실행
-- `yarn clean`: 빌드 파일 정리
-
-### 코드 스타일
-
-- TypeScript strict 모드 사용
-- ESLint 규칙 준수
-- 일관된 네이밍 컨벤션
-
-## 🔒 보안
-
-- Helmet을 통한 보안 헤더 설정
-- CORS 설정
-- 입력 데이터 유효성 검사
-- 에러 핸들링
-
-## 📝 TODO
-
-- [ ] 데이터베이스 연동 (MongoDB/PostgreSQL)
-- [ ] 인증/인가 시스템
-- [ ] 파일 업로드 기능
-- [ ] 문서 템플릿 기능
-- [ ] API 문서화 (Swagger)
-- [ ] 테스트 코드 작성
-- [ ] Docker 설정
-
-## 🤝 기여
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📄 라이선스
-
-MIT License
-
-## 지원 파일 형식
-
-- **HWP**: 한글 문서 (HWP → DOCX 변환 후 처리)
-- **DOCX**: Word 문서
-- **PDF**: PDF 문서 (이미지 PDF는 OCR 필요)
-- **XLSX**: Excel 문서
-- **TXT/CSV**: 텍스트 파일
-- **HWPX**: 한글 문서 (XML 기반)
-
-## 서버 설정
-
-### HWP → DOCX 변환을 위한 도구 설치
-
-#### 1. LibreOffice 설치 (권장)
-
-**macOS:**
+### **HWP 텍스트 추출**
 
 ```bash
-brew install --cask libreoffice
-```
-
-**Ubuntu/Debian:**
-
-```bash
-sudo apt-get update
-sudo apt-get install libreoffice
-```
-
-**CentOS/RHEL:**
-
-```bash
-sudo yum install libreoffice
-```
-
-#### 2. Pandoc 설치 (대안)
-
-**macOS:**
-
-```bash
-brew install pandoc
-```
-
-**Ubuntu/Debian:**
-
-```bash
-sudo apt-get install pandoc
-```
-
-**CentOS/RHEL:**
-
-```bash
-sudo yum install pandoc
-```
-
-### 설치 확인
-
-```bash
-# LibreOffice 확인
-libreoffice --version
-
-# Pandoc 확인
-pandoc --version
-```
-
-## API 엔드포인트
-
-### 1. 기본 텍스트 추출
-
-```
 POST /extract-hwp-text
-POST /extract-hwp-text-enhanced
+Content-Type: multipart/form-data
+
+# 파일 업로드
+curl -X POST http://localhost:8080/extract-hwp-text \
+  -F "file=@document.hwp"
 ```
 
-### 2. HWP → DOCX 변환 후 텍스트 추출 (새로 추가)
-
-```
-POST /convert-hwp-to-docx
-```
-
-**사용법:**
-
-```bash
-curl -X POST -F "data=@document.hwp" http://localhost:8080/convert-hwp-to-docx
-```
-
-**응답:**
+**응답 예시:**
 
 ```json
 {
   "success": true,
-  "text": "변환된 텍스트 내용...",
-  "message": "HWP → DOCX → 텍스트 변환 성공"
+  "filename": "document.hwp",
+  "text": "추출된 텍스트 내용...",
+  "textLength": 1234,
+  "method": "MS Word (Mac)"
 }
 ```
 
-### 3. 기타 엔드포인트
+### **건강 체크**
 
-```
-POST /extract-hwp-text-base64
-POST /extract-hwp-to-pdf
-POST /extract-hwp-text-from-url
+```bash
 GET /health
 ```
 
-## 배포
+## 🔧 **MS Word 연동 상세 설명**
 
-### Cloudtype 배포
+### **Mac 환경에서 MS Word 사용**
+
+- **AppleScript**를 통해 로컬 MS Word 앱을 자동 제어
+- **API 키 불필요** - 로컬 설치된 MS Word만 있으면 동작
+- **무료** - 추가 비용 없음
+- **정확한 변환** - MS Word의 HWP 지원 활용
+
+### **Microsoft Graph API (선택사항)**
+
+- **온라인 변환** - 서버 환경에서도 동작
+- **Microsoft 365 계정** 필요
+- **API 키 등록** 필요
+- **더 안정적** - 로컬 환경 의존성 없음
+
+### **우선순위**
+
+1. **로컬 MS Word** (Mac)
+2. **Microsoft Graph API** (설정된 경우)
+3. **LibreOffice** (최종 fallback)
+
+## 🐳 Docker 배포
 
 ```bash
-npm install -g @cloudtype/cli
-cloudtype login
-cloudtype deploy
-```
-
-### Docker 배포
-
-```bash
+# Docker 이미지 빌드
 docker build -t document-creation-ai .
+
+# 컨테이너 실행
 docker run -p 8080:8080 document-creation-ai
 ```
 
-## 문제 해결
+## 📝 **환경별 권장사항**
 
-### HWP 파일 처리 문제
+### **개발 환경 (Mac)**
 
-1. **깨진 한글**: HWP → DOCX 변환 엔드포인트 사용
-2. **변환 실패**: LibreOffice 또는 Pandoc 설치 확인
-3. **한컴 API**: 서비스 복구 대기 중
+- MS Word 설치
+- Microsoft Graph API 설정 (선택사항)
 
-### PDF 텍스트 추출 실패
+### **프로덕션 환경**
 
-- 이미지 기반 PDF의 경우 OCR 필요
-- GPT-4o 등 OCR 서비스 활용 권장
+- Microsoft Graph API 설정 권장
+- LibreOffice 설치 (fallback용)
+
+### **Docker 환경**
+
+- LibreOffice 기반 변환
+- Microsoft Graph API 설정 가능
+
+## 🔍 **문제 해결**
+
+### **포트 충돌**
+
+```bash
+# 포트 사용 중인 프로세스 확인
+lsof -i :8080
+
+# 프로세스 종료
+kill -9 <PID>
+```
+
+### **HWP 변환 실패**
+
+1. MS Word가 설치되어 있는지 확인 (Mac)
+2. Microsoft Graph API 설정 확인
+3. LibreOffice 설치 확인
+
+### **권한 문제**
+
+```bash
+# LibreOffice 실행 권한 확인
+which soffice
+which libreoffice
+```
+
+## 📄 **라이선스**
+
+MIT License
+
+## 🤝 **기여**
+
+이슈나 풀 리퀘스트를 환영합니다!

@@ -48,27 +48,33 @@ app.get('/health', (req, res) => {
 })
 
 // HWP 텍스트 추출 API (기존 버전)
-app.post('/extract-hwp-text', upload.array('data'), async (req: any, res: any) => {
-  console.log('==== /extract-hwp-text 호출됨 ====')
-  console.log('req.files:', req.files)
-  console.log('req.body:', req.body)
+app.post('/extract-hwp-text', upload.single('file'), async (req: any, res: any) => {
   try {
-    if (!req.files || req.files.length === 0) {
+    if (!req.file) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
     }
-    const results = await Promise.all(
-      req.files.map(async (file: any) => {
-        try {
-          const text = await extractHwpText(file.path)
-          return { filename: file.originalname, text }
-        } catch (err: any) {
-          return { filename: file.originalname, error: err.message }
-        }
-      })
-    )
-    res.json({ results })
-  } catch (err: any) {
-    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+
+    const fileBuffer = req.file.buffer
+    const filename = req.file.originalname
+
+    console.log(`HWP 파일 업로드됨: ${filename}, 크기: ${fileBuffer.length} bytes`)
+
+    // OS에 따른 적절한 변환 방법 선택
+    const extractedText = await convertHwpToTextViaAppropriateMethod(fileBuffer, filename)
+
+    res.json({
+      success: true,
+      filename: filename,
+      text: extractedText,
+      textLength: extractedText.length,
+      method: isMacOS() ? 'MS Word (Mac)' : 'LibreOffice'
+    })
+  } catch (error: any) {
+    console.error('HWP 텍스트 추출 실패:', error)
+    res.status(500).json({
+      error: 'HWP 텍스트 추출에 실패했습니다.',
+      details: error.message
+    })
   }
 })
 
@@ -514,76 +520,177 @@ async function hancomHwpToPdf(filePath: string, accessToken: string): Promise<Bu
   }
 }
 
-// 한컴 API를 통한 HWP → PDF → 텍스트 추출 파이프라인 (LibreOffice fallback 추가)
-async function convertHwpToTextViaHancomPdf(fileBuffer: Buffer, filename: string): Promise<string> {
+// Microsoft Graph API 설정
+const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID
+const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET
+const MICROSOFT_TENANT_ID = process.env.MICROSOFT_TENANT_ID
+
+// Microsoft Graph API를 통한 HWP → PDF 변환
+async function msWordOnlineHwpToPdf(fileBuffer: Buffer, filename: string): Promise<Buffer> {
   try {
-    console.log('한컴 API를 통한 HWP → PDF → 텍스트 변환 시작...')
+    console.log('[HWP→PDF] Microsoft Graph API 변환 시작:', filename)
 
-    // 1. 한컴 OAuth2 토큰 발급
-    const accessToken = await getHancomAccessToken()
-    console.log('한컴 토큰 발급 성공')
+    if (!MICROSOFT_CLIENT_ID || !MICROSOFT_CLIENT_SECRET || !MICROSOFT_TENANT_ID) {
+      throw new Error('Microsoft Graph API 설정이 필요합니다. 환경변수를 확인해주세요.')
+    }
 
-    // 2. HWP → PDF 변환 (한컴 API 시도)
+    // 1. Microsoft Graph API 액세스 토큰 획득
+    const tokenResponse = await axios.post(`https://login.microsoftonline.com/${MICROSOFT_TENANT_ID}/oauth2/v2.0/token`, {
+      client_id: MICROSOFT_CLIENT_ID,
+      client_secret: MICROSOFT_CLIENT_SECRET,
+      scope: 'https://graph.microsoft.com/.default',
+      grant_type: 'client_credentials'
+    })
+
+    const accessToken = tokenResponse.data.access_token
+
+    // 2. OneDrive에 파일 업로드
+    const uploadResponse = await axios.put(`https://graph.microsoft.com/v1.0/me/drive/root:/temp_${filename}:/content`, fileBuffer, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/octet-stream'
+      }
+    })
+
+    const fileId = uploadResponse.data.id
+
+    // 3. Word Online에서 PDF로 변환
+    const convertResponse = await axios.post(
+      `https://graph.microsoft.com/v1.0/me/drive/items/${fileId}/convert`,
+      {
+        format: 'pdf'
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    )
+
+    // 4. 변환된 PDF 다운로드
+    const pdfResponse = await axios.get(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}/content`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      responseType: 'arraybuffer'
+    })
+
+    // 5. 임시 파일 삭제
+    await axios.delete(`https://graph.microsoft.com/v1.0/me/drive/items/${fileId}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    })
+
+    return Buffer.from(pdfResponse.data)
+  } catch (error: any) {
+    console.error('Microsoft Graph API 변환 실패:', error.message)
+    throw error
+  }
+}
+
+// 개선된 변환 함수 (우선순위: 로컬 MS Word → Microsoft Graph API → LibreOffice)
+async function convertHwpToTextViaAppropriateMethod(fileBuffer: Buffer, filename: string): Promise<string> {
+  if (isMacOS()) {
+    console.log('Mac OS 감지됨, MS Word 사용')
+
     try {
-      const pdfBuffer = await hancomHwpToPdf(filename, accessToken)
-      console.log('한컴 API HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
-
-      // 3. PDF → 텍스트 추출
-      const pdfText = await pdfParse(pdfBuffer)
-      const extractedText = pdfText.text.trim()
-
-      console.log('PDF → 텍스트 추출 완료, 텍스트 길이:', extractedText.length)
-      return extractedText
-    } catch (hancomError: any) {
-      console.error('한컴 API 변환 실패, LibreOffice fallback 시도:', hancomError.message)
-
-      // 한컴 API 실패 시 LibreOffice 변환으로 fallback
-      const fs = require('fs')
-      const tempFilePath = `uploads/temp_${Date.now()}.hwp`
-      fs.writeFileSync(tempFilePath, fileBuffer)
+      // 1차: 로컬 MS Word 시도
+      return await convertHwpToTextViaMsWordMac(fileBuffer, filename)
+    } catch (localError: any) {
+      console.log('로컬 MS Word 실패, Microsoft Graph API 시도:', localError.message)
 
       try {
-        const { exec } = require('child_process')
-        const pdfPath = tempFilePath.replace(/\.hwp$/, '.pdf')
-        const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "uploads" "${tempFilePath}"`
-
-        await new Promise((resolve, reject) => {
-          exec(cmd, (error: any, stdout: any, stderr: any) => {
-            if (error) {
-              console.error('LibreOffice 변환 실패:', error)
-              return reject(error)
-            }
-            if (!fs.existsSync(pdfPath)) {
-              return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
-            }
-            resolve(true)
-          })
-        })
-
-        const pdfBuffer = fs.readFileSync(pdfPath)
+        // 2차: Microsoft Graph API 시도
+        const pdfBuffer = await msWordOnlineHwpToPdf(fileBuffer, filename)
         const pdfText = await pdfParse(pdfBuffer)
-        const extractedText = pdfText.text.trim()
+        return pdfText.text.trim()
+      } catch (onlineError: any) {
+        console.log('Microsoft Graph API 실패, LibreOffice fallback:', onlineError.message)
 
-        // 임시 파일 정리
-        fs.unlinkSync(tempFilePath)
-        fs.unlinkSync(pdfPath)
-
-        console.log('LibreOffice fallback 성공, 텍스트 길이:', extractedText.length)
-        return extractedText
-      } catch (libreOfficeError: any) {
-        console.error('LibreOffice fallback도 실패:', libreOfficeError.message)
-
-        // 임시 파일 정리
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath)
-        const pdfPath = tempFilePath.replace(/\.hwp$/, '.pdf')
-        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
-
-        throw new Error(`모든 변환 방법 실패: 한컴API(${hancomError.message}), LibreOffice(${libreOfficeError.message})`)
+        // 3차: LibreOffice fallback
+        return await convertHwpToTextViaLibreOffice(fileBuffer, filename)
       }
     }
+  } else {
+    console.log('다른 OS 감지됨, LibreOffice 사용')
+    return await convertHwpToTextViaLibreOffice(fileBuffer, filename)
+  }
+}
+
+// LibreOffice를 통한 HWP → PDF 변환 (즉시 사용 가능)
+async function libreOfficeHwpToPdf(filePath: string): Promise<Buffer> {
+  const fs = require('fs')
+  const { exec } = require('child_process')
+
+  try {
+    const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+    const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "uploads" "${filePath}"`
+
+    console.log('[HWP→PDF] LibreOffice 변환 시작:', cmd)
+
+    await new Promise((resolve, reject) => {
+      exec(cmd, (error: any, stdout: any, stderr: any) => {
+        console.log('[HWP→PDF] LibreOffice stdout:', stdout)
+        console.log('[HWP→PDF] LibreOffice stderr:', stderr)
+
+        if (error) {
+          console.error('[HWP→PDF] LibreOffice 변환 에러:', error)
+          return reject(error)
+        }
+
+        if (!fs.existsSync(pdfPath)) {
+          console.error('[HWP→PDF] PDF 파일이 생성되지 않았습니다:', pdfPath)
+          return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+        }
+
+        resolve(true)
+      })
+    })
+
+    const pdfBuffer = fs.readFileSync(pdfPath)
+    fs.unlinkSync(pdfPath) // 임시 PDF 파일 삭제
+
+    return pdfBuffer
   } catch (error: any) {
-    console.error('한컴 API 파이프라인 실패:', error.message)
+    console.error('LibreOffice 변환 실패:', error.message)
     throw error
+  }
+}
+
+// LibreOffice를 통한 HWP → PDF → 텍스트 추출 파이프라인
+async function convertHwpToTextViaLibreOffice(fileBuffer: Buffer, filename: string): Promise<string> {
+  try {
+    console.log('LibreOffice를 통한 HWP → PDF → 텍스트 변환 시작...')
+
+    // 1. 임시 HWP 파일 생성
+    const fs = require('fs')
+    const tempFilePath = `uploads/temp_${Date.now()}.hwp`
+    fs.writeFileSync(tempFilePath, fileBuffer)
+
+    // 2. LibreOffice로 HWP → PDF 변환
+    const pdfBuffer = await libreOfficeHwpToPdf(tempFilePath)
+    console.log('LibreOffice HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
+
+    // 3. PDF → 텍스트 추출
+    const pdfText = await pdfParse(pdfBuffer)
+    const extractedText = pdfText.text.trim()
+
+    // 4. 임시 파일 정리
+    fs.unlinkSync(tempFilePath)
+
+    console.log('PDF → 텍스트 추출 완료, 텍스트 길이:', extractedText.length)
+    return extractedText
+  } catch (error: any) {
+    console.error('LibreOffice 변환 실패:', error.message)
+
+    // 임시 파일 정리
+    const fs = require('fs')
+    const tempFilePath = `uploads/temp_${Date.now()}.hwp`
+    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath)
+
+    throw new Error(`LibreOffice 변환 실패: ${error.message}`)
   }
 }
 
@@ -714,73 +821,39 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
         console.error('hwp.js 파싱 실패:', hwpError)
 
         try {
-          // 2. hwp.js 실패 시 LibreOffice로 PDF 변환 시도
-          console.log('LibreOffice 변환 시도...')
-          const pdfPath = path.join('uploads', fileName + '.pdf')
-          console.log(`LibreOffice 변환 시작: ${filePath} -> ${pdfPath}`)
-
-          await new Promise((resolve, reject) => {
-            // 더 자세한 옵션으로 LibreOffice 실행
-            const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export "${filePath}" --outdir "uploads" 2>&1`
-            console.log(`실행 명령어: ${cmd}`)
-
-            exec(cmd, (error: any, stdout: any, stderr: any) => {
-              console.log(`LibreOffice stdout: ${stdout}`)
-              console.log(`LibreOffice stderr: ${stderr}`)
-
-              if (error) {
-                console.error(`LibreOffice 에러: ${error.message}`)
-                return reject(error)
-              }
-
-              // 변환된 파일이 실제로 생성되었는지 확인
-              if (fs.existsSync(pdfPath)) {
-                console.log('LibreOffice 변환 성공! 생성된 PDF 파일:', pdfPath)
-                resolve(true)
-              } else {
-                console.log('변환된 파일을 찾을 수 없음:', pdfPath)
-                reject(new Error('PDF 파일이 생성되지 않았습니다.'))
-              }
-            })
-          })
-
-          // 3. PDF에서 텍스트 추출
-          const pdfBuffer = fs.readFileSync(pdfPath)
-          text = (await pdfParse(pdfBuffer)).text
+          // 2. hwp.js 실패 시 Microsoft Graph API로 PDF 변환 시도
+          console.log('Microsoft Graph API 변환 시도...')
+          const pdfBuffer = await msWordOnlineHwpToPdf(fileBuffer, fileName)
+          const pdfText = await pdfParse(pdfBuffer)
+          text = pdfText.text.trim()
 
           if (!text || text.trim().length === 0) {
-            console.warn('PDF에서 추출된 텍스트가 비어있습니다.')
+            console.warn('Microsoft Graph API에서 추출된 텍스트가 비어있습니다.')
             text = '텍스트를 추출할 수 없습니다. (빈 문서이거나 변환 실패)'
           }
 
-          // 4. 임시 파일 정리
+          // 임시 파일 정리
           fs.unlinkSync(filePath)
-          fs.unlinkSync(pdfPath)
-        } catch (libreOfficeError) {
-          console.error('LibreOffice 변환도 실패:', libreOfficeError)
+        } catch (onlineError: any) {
+          console.error('Microsoft Graph API 변환도 실패:', onlineError.message)
 
           // 임시 파일 정리
           if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-          const pdfPath = path.join('uploads', fileName + '.pdf')
-          if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
 
           // 5. 최종 대안: 파일을 그대로 텍스트로 읽어보기
           try {
-            console.log('모든 방법 실패, 최종 대안 시도...')
-            const alternativeText = fileBuffer.toString('utf-8', 0, Math.min(fileBuffer.length, 10000))
-            if (alternativeText && alternativeText.trim().length > 0) {
-              text = `[변환 실패 - 원본 데이터 일부]\n${alternativeText.substring(0, 1000)}...`
-            } else {
-              text = 'HWP 파일을 텍스트로 변환할 수 없습니다. 모든 변환 방법이 실패했습니다.'
+            const rawText = fs.readFileSync(filePath, 'utf8')
+            if (rawText && rawText.trim().length > 0) {
+              text = rawText
+              console.log('파일을 직접 읽어서 텍스트 추출 성공')
             }
-          } catch (altErr) {
-            console.error('최종 대안 방법도 실패:', altErr)
-            text = 'HWP 파일을 텍스트로 변환할 수 없습니다. 모든 변환 방법이 실패했습니다.'
+          } catch (readError) {
+            console.error('파일 직접 읽기 실패:', readError)
           }
 
           return res.status(400).json({
             error: 'HWP 파일 변환에 실패했습니다.',
-            detail: `hwp.js: ${(hwpError as any).message}, LibreOffice: ${(libreOfficeError as any).message}`,
+            detail: `hwp.js: ${(hwpError as any).message}, Microsoft Graph API: ${onlineError.message}`,
             text: text // 부분적으로라도 텍스트가 있으면 반환
           })
         }
@@ -845,7 +918,7 @@ app.post('/convert-hwp-to-docx', upload.single('data'), async (req: any, res: an
         (error: any, stdout: any, stderr: any) => {
           if (error) {
             console.log('LibreOffice 변환 실패:', error.message)
-            // 방법 2: Pandoc 사용
+            // 방법 2: Microsoft Graph API 사용
             exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
               if (pandocError) {
                 console.log('Pandoc 변환도 실패:', pandocError.message)
@@ -923,7 +996,7 @@ app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, 
     console.log(`HWP 파일 처리 시작: ${filename}, 크기: ${fileBuffer.length} bytes`)
 
     // 한컴 API를 통한 HWP → PDF → 텍스트 추출
-    const extractedText = await convertHwpToTextViaHancomPdf(fileBuffer, filename)
+    const extractedText = await convertHwpToTextViaAppropriateMethod(fileBuffer, filename)
 
     // 임시 파일 정리
     fs.unlinkSync(req.file.path)
@@ -932,11 +1005,11 @@ app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, 
       success: true,
       filename: filename,
       text: extractedText,
-      method: '한컴 API HWP → PDF → 텍스트',
+      method: isMacOS() ? 'MS Word (Mac)' : 'LibreOffice',
       textLength: extractedText.length
     })
   } catch (error: any) {
-    console.error('한컴 API 파이프라인 실패:', error)
+    console.error('LibreOffice를 통한 HWP 변환 실패:', error)
 
     // 임시 파일 정리
     if (req.file && fs.existsSync(req.file.path)) {
@@ -944,7 +1017,7 @@ app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, 
     }
 
     res.status(500).json({
-      error: '한컴 API를 통한 HWP 변환 실패',
+      error: 'LibreOffice를 통한 HWP 변환 실패',
       detail: error.message,
       suggestion: '다른 변환 방법을 시도해보세요: /extract-hwp-text-enhanced'
     })
@@ -965,25 +1038,25 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
 
     console.log(`HWP → PDF 변환 시작: ${filename}`)
 
-    // 1. 한컴 OAuth2 토큰 발급
-    const accessToken = await getHancomAccessToken()
+    // 1. 임시 HWP 파일 생성
+    const tempFilePath = `uploads/temp_${Date.now()}.hwp`
+    fs.writeFileSync(tempFilePath, fileBuffer)
 
-    // 2. HWP → PDF 변환
-    const pdfBuffer = await hancomHwpToPdf(filename, accessToken)
+    // 2. Microsoft Graph API를 통한 HWP → PDF 변환
+    const pdfBuffer = await msWordOnlineHwpToPdf(fileBuffer, filename)
+    console.log('Microsoft Graph API HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
 
     // 3. PDF 파일로 저장
     const pdfFilename = filename.replace(/\.hwp$/i, '.pdf')
-    const pdfPath = path.join('uploads', `hancom_${Date.now()}_${pdfFilename}`)
+    const pdfPath = path.join('uploads', `ms_${Date.now()}_${pdfFilename}`)
     fs.writeFileSync(pdfPath, pdfBuffer)
 
     console.log(`PDF 변환 완료: ${pdfPath}`)
 
     // 4. PDF 파일 다운로드
     res.download(pdfPath, pdfFilename, (err: any) => {
-      // 다운로드 완료 후 임시 파일들 정리
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path)
-      }
+      // 임시 파일 정리
+      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath)
       if (fs.existsSync(pdfPath)) {
         fs.unlinkSync(pdfPath)
       }
@@ -993,7 +1066,7 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
       }
     })
   } catch (error: any) {
-    console.error('한컴 API PDF 변환 실패:', error)
+    console.error('Microsoft Graph API를 통한 PDF 변환 실패:', error)
 
     // 임시 파일 정리
     if (req.file && fs.existsSync(req.file.path)) {
@@ -1001,7 +1074,7 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
     }
 
     res.status(500).json({
-      error: '한컴 API를 통한 PDF 변환 실패',
+      error: 'Microsoft Graph API를 통한 PDF 변환 실패',
       detail: error.message
     })
   }
@@ -1017,29 +1090,17 @@ app.post('/convert-and-serve', upload.single('data'), async (req: any, res: any)
   const uploadsDir = 'uploads'
 
   if (ext === '.hwp') {
-    // HWP → PDF 변환 (LibreOffice 또는 한컴 API 활용)
+    // HWP → PDF 변환 (Microsoft Graph API 활용)
     try {
-      // LibreOffice 변환 명령어
+      // Microsoft Graph API를 통한 HWP → PDF 변환
+      const pdfBuffer = await msWordOnlineHwpToPdf(req.file.buffer, req.file.originalname)
+      const pdfText = await pdfParse(pdfBuffer)
+      const extractedText = pdfText.text.trim()
+
+      // PDF 파일로 저장
       const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
-      const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${uploadsDir}" "${filePath}"`
-      const { exec } = require('child_process')
-      console.log('[HWP→PDF] 변환 명령 실행 시작:', cmd)
-      await new Promise((resolve, reject) => {
-        exec(cmd, (error: any, stdout: any, stderr: any) => {
-          console.log('[HWP→PDF] LibreOffice 명령 실행 완료')
-          console.log('[HWP→PDF] LibreOffice stdout:', stdout)
-          console.log('[HWP→PDF] LibreOffice stderr:', stderr)
-          if (error) {
-            console.error('[HWP→PDF] LibreOffice 변환 에러:', error)
-            return reject(error)
-          }
-          if (!fs.existsSync(pdfPath)) {
-            console.error('[HWP→PDF] PDF 파일이 생성되지 않았습니다:', pdfPath)
-            return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
-          }
-          resolve(true)
-        })
-      })
+      fs.writeFileSync(pdfPath, pdfBuffer)
+
       // 원본 HWP 파일 삭제
       fs.unlinkSync(filePath)
       // PDF 파일을 바로 전송
@@ -1139,8 +1200,7 @@ function getHwpErrorMessage(filename: string): string {
 📋 **HWP 파일 처리 한계:**
 • HWP 파일은 EUC-KR/CP949 인코딩을 사용하여 Node.js에서 자동 변환이 어려움
 • hwp.js, node-hwp, 바이너리 파싱 등 모든 방법이 인코딩 문제로 실패
-• 한컴 API는 서비스 중단 상태 (404 에러)
-• LibreOffice/Pandoc은 클라우드 환경에서 설치/실행 불가
+• MS Word Online은 클라우드 환경에서 설치/실행 불가
 
 💡 **권장 해결책:**
 1. HWP 파일을 DOCX로 변환 후 업로드
@@ -1215,4 +1275,134 @@ async function convertHwpToDocxWithLibreOffice(hwpPath: string): Promise<string 
 
     tryNextCommand()
   })
+}
+
+// Mac 환경에서 MS Word를 통한 HWP → PDF 변환
+async function msWordHwpToPdfMac(filePath: string): Promise<Buffer> {
+  const fs = require('fs')
+  const { exec } = require('child_process')
+
+  try {
+    console.log('[HWP→PDF] MS Word 변환 시작 (Mac):', filePath)
+
+    // AppleScript를 통한 MS Word 제어
+    const appleScript = `
+      tell application "Microsoft Word"
+        activate
+        set docFile to POSIX file "${filePath}"
+        open docFile
+        set activeDoc to active document
+        set pdfPath to POSIX file "${filePath.replace(/\.hwp$/, '.pdf')}"
+        save as activeDoc in pdfPath as PDF
+        close activeDoc saving no
+        quit
+      end tell
+    `
+
+    // AppleScript 실행
+    await new Promise((resolve, reject) => {
+      exec(`osascript -e '${appleScript}'`, (error: any, stdout: any, stderr: any) => {
+        console.log('[HWP→PDF] AppleScript stdout:', stdout)
+        console.log('[HWP→PDF] AppleScript stderr:', stderr)
+
+        if (error) {
+          console.error('[HWP→PDF] AppleScript 실행 에러:', error)
+          return reject(error)
+        }
+
+        const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+        if (!fs.existsSync(pdfPath)) {
+          console.error('[HWP→PDF] PDF 파일이 생성되지 않았습니다:', pdfPath)
+          return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+        }
+
+        resolve(true)
+      })
+    })
+
+    const pdfBuffer = fs.readFileSync(filePath.replace(/\.hwp$/, '.pdf'))
+    fs.unlinkSync(filePath.replace(/\.hwp$/, '.pdf')) // 임시 PDF 파일 삭제
+
+    return pdfBuffer
+  } catch (error: any) {
+    console.error('MS Word 변환 실패 (Mac):', error.message)
+    throw error
+  }
+}
+
+// Mac 환경에서 MS Word를 통한 HWP → PDF → 텍스트 추출 파이프라인
+async function convertHwpToTextViaMsWordMac(fileBuffer: Buffer, filename: string): Promise<string> {
+  try {
+    console.log('MS Word를 통한 HWP → PDF → 텍스트 변환 시작 (Mac)...')
+
+    // 1. 임시 HWP 파일 생성
+    const fs = require('fs')
+    const tempFilePath = `uploads/temp_${Date.now()}.hwp`
+    fs.writeFileSync(tempFilePath, fileBuffer)
+
+    // 2. MS Word로 HWP → PDF 변환
+    const pdfBuffer = await msWordHwpToPdfMac(tempFilePath)
+    console.log('MS Word HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
+
+    // 3. PDF → 텍스트 추출
+    const pdfText = await pdfParse(pdfBuffer)
+    const extractedText = pdfText.text.trim()
+
+    // 4. 임시 파일 정리
+    fs.unlinkSync(tempFilePath)
+
+    console.log('PDF → 텍스트 추출 완료, 텍스트 길이:', extractedText.length)
+    return extractedText
+  } catch (msError: any) {
+    console.error('MS Word 변환 실패 (Mac), Microsoft Graph API fallback 시도:', msError.message)
+
+    // MS Word 실패 시 Microsoft Graph API로 fallback
+    const fs = require('fs')
+    const tempFilePath = `uploads/temp_${Date.now()}.hwp`
+    fs.writeFileSync(tempFilePath, fileBuffer)
+
+    try {
+      const { exec } = require('child_process')
+      const pdfPath = tempFilePath.replace(/\.hwp$/, '.pdf')
+      const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "uploads" "${tempFilePath}"`
+
+      await new Promise((resolve, reject) => {
+        exec(cmd, (error: any, stdout: any, stderr: any) => {
+          if (error) {
+            console.error('Microsoft Graph API 변환 실패:', error)
+            return reject(error)
+          }
+          if (!fs.existsSync(pdfPath)) {
+            return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+          }
+          resolve(true)
+        })
+      })
+
+      const pdfBuffer = fs.readFileSync(pdfPath)
+      const pdfText = await pdfParse(pdfBuffer)
+      const extractedText = pdfText.text.trim()
+
+      // 임시 파일 정리
+      fs.unlinkSync(tempFilePath)
+      fs.unlinkSync(pdfPath)
+
+      console.log('Microsoft Graph API fallback 성공, 텍스트 길이:', extractedText.length)
+      return extractedText
+    } catch (onlineError: any) {
+      console.error('Microsoft Graph API fallback도 실패:', onlineError.message)
+
+      // 임시 파일 정리
+      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath)
+      const pdfPath = tempFilePath.replace(/\.hwp$/, '.pdf')
+      if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+
+      throw new Error(`모든 변환 방법 실패: MS Word Mac(${msError.message}), Microsoft Graph API(${onlineError.message})`)
+    }
+  }
+}
+
+// OS 감지 함수
+function isMacOS(): boolean {
+  return process.platform === 'darwin'
 }
