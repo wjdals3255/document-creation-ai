@@ -77,11 +77,11 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
   console.log('==== /extract-hwp-text-enhanced 호출됨 ====')
   console.log('req.files:', req.files)
   console.log('req.body:', req.body)
-  
+
   // 요청 타임아웃 설정
   req.setTimeout(300000) // 5분
   res.setTimeout(300000) // 5분
-  
+
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
@@ -95,7 +95,7 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
           // HWP 파일인 경우 한컴 API 우선 시도
           if (file.originalname.toLowerCase().endsWith('.hwp')) {
             console.log('HWP 파일 감지, 한컴 API 우선 시도...')
-            
+
             try {
               const fileBuffer = fs.readFileSync(file.path)
               // 한컴 API를 통한 HWP → PDF → 텍스트 추출 시도
@@ -103,14 +103,14 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
               console.log('한컴 API 성공!')
             } catch (hancomError: any) {
               console.log('한컴 API 실패, LibreOffice 변환 시도...')
-              
+
               // 한컴 API 실패 시 LibreOffice 변환 시도
               try {
                 text = await convertHwpToText(file.path, file.originalname)
                 console.log('LibreOffice 변환 성공!')
               } catch (libreOfficeError: any) {
                 console.log('LibreOffice 변환도 실패, 한컴 TXT API 시도...')
-                
+
                 // LibreOffice도 실패 시 한컴 TXT API 시도
                 try {
                   const fileBuffer = fs.readFileSync(file.path)
@@ -135,7 +135,7 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
         }
       })
     )
-    
+
     // 응답 전송
     res.json({ results })
   } catch (err: any) {
@@ -558,7 +558,7 @@ async function hancomHwpToPdf(fileBuffer: Buffer, filename: string, accessToken:
       params: { fileName: filename },
       responseType: 'arraybuffer' // PDF 바이너리 데이터 받기
     })
-    
+
     console.log('한컴 API HWP → PDF 변환 성공')
     return res.data // PDF 바이너리 데이터
   } catch (error: any) {
@@ -571,22 +571,21 @@ async function hancomHwpToPdf(fileBuffer: Buffer, filename: string, accessToken:
 async function convertHwpToTextViaHancomPdf(fileBuffer: Buffer, filename: string): Promise<string> {
   try {
     console.log('한컴 API를 통한 HWP → PDF → 텍스트 변환 시작...')
-    
+
     // 1. 한컴 OAuth2 토큰 발급
     const accessToken = await getHancomAccessToken()
     console.log('한컴 토큰 발급 성공')
-    
+
     // 2. HWP → PDF 변환
     const pdfBuffer = await hancomHwpToPdf(fileBuffer, filename, accessToken)
     console.log('HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
-    
+
     // 3. PDF → 텍스트 추출
     const pdfText = await pdfParse(pdfBuffer)
     const extractedText = pdfText.text.trim()
-    
+
     console.log('PDF → 텍스트 추출 완료, 텍스트 길이:', extractedText.length)
     return extractedText
-    
   } catch (error: any) {
     console.error('한컴 API 파이프라인 실패:', error.message)
     throw error
@@ -740,14 +739,14 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
                 return reject(error)
               }
 
-              // PDF 파일이 실제로 생성되었는지 확인
-              if (!fs.existsSync(pdfPath)) {
-                console.error(`PDF 파일이 생성되지 않음: ${pdfPath}`)
-                return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+              // 변환된 파일이 실제로 생성되었는지 확인
+              if (fs.existsSync(pdfPath)) {
+                console.log('LibreOffice 변환 성공! 생성된 PDF 파일:', pdfPath)
+                resolve(true)
+              } else {
+                console.log('변환된 파일을 찾을 수 없음:', pdfPath)
+                reject(new Error('PDF 파일이 생성되지 않았습니다.'))
               }
-
-              console.log(`PDF 변환 성공: ${pdfPath}`)
-              resolve(true)
             })
           })
 
@@ -918,7 +917,7 @@ app.use(hwpxRoutes)
 // 한컴 API를 활용한 HWP → PDF → 텍스트 추출 API (새로운 방식)
 app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, res: any) => {
   console.log('==== /extract-hwp-via-hancom-pdf 호출됨 ====')
-  
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
@@ -942,10 +941,9 @@ app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, 
       method: '한컴 API HWP → PDF → 텍스트',
       textLength: extractedText.length
     })
-
   } catch (error: any) {
     console.error('한컴 API 파이프라인 실패:', error)
-    
+
     // 임시 파일 정리
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path)
@@ -962,7 +960,7 @@ app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, 
 // 한컴 API를 활용한 HWP → PDF 변환 API (PDF 다운로드)
 app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, res: any) => {
   console.log('==== /convert-hwp-to-pdf-hancom 호출됨 ====')
-  
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
@@ -975,10 +973,10 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
 
     // 1. 한컴 OAuth2 토큰 발급
     const accessToken = await getHancomAccessToken()
-    
+
     // 2. HWP → PDF 변환
     const pdfBuffer = await hancomHwpToPdf(fileBuffer, filename, accessToken)
-    
+
     // 3. PDF 파일로 저장
     const pdfFilename = filename.replace(/\.hwp$/i, '.pdf')
     const pdfPath = path.join('uploads', `hancom_${Date.now()}_${pdfFilename}`)
@@ -995,15 +993,14 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
       if (fs.existsSync(pdfPath)) {
         fs.unlinkSync(pdfPath)
       }
-      
+
       if (err) {
         console.error('PDF 다운로드 중 오류:', err)
       }
     })
-
   } catch (error: any) {
     console.error('한컴 API PDF 변환 실패:', error)
-    
+
     // 임시 파일 정리
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path)
@@ -1152,4 +1149,14 @@ async function convertHwpToDocxWithLibreOffice(hwpPath: string): Promise<string 
             console.log('LibreOffice 변환 성공! 생성된 DOCX 파일:', outputPath)
             resolve(outputPath)
           } else {
-            console.log(`
+            console.log('변환된 파일을 찾을 수 없음:', outputPath)
+            commandIndex++
+            tryNextCommand()
+          }
+        }
+      )
+    }
+
+    tryNextCommand()
+  })
+}
