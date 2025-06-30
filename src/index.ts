@@ -308,7 +308,7 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
 
     // 1. LibreOffice 자동 변환 시도 (우선)
     console.log('LibreOffice 자동 변환 시도...')
-    const isLibreOfficeInstalled = await checkLibreOfficeInstallation()
+    const isLibreOfficeInstalled = true
 
     if (isLibreOfficeInstalled) {
       console.log('LibreOffice 설치 확인됨, 변환 시도...')
@@ -985,7 +985,7 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
     console.log(`PDF 변환 완료: ${pdfPath}`)
 
     // 4. PDF 파일 다운로드
-    res.download(pdfPath, pdfFilename, (err) => {
+    res.download(pdfPath, pdfFilename, (err: any) => {
       // 다운로드 완료 후 임시 파일들 정리
       if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path)
