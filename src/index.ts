@@ -29,8 +29,8 @@ const PORT = process.env.PORT || 8080
 app.use(helmet()) // Security headers
 app.use(cors({ origin: '*', credentials: true }))
 app.use(morgan('combined')) // Logging
-app.use(express.json({ limit: '10mb' })) // Parse JSON bodies
-app.use(express.urlencoded({ extended: true })) // Parse URL-encoded bodies
+app.use(express.json({ limit: '50mb' })) // Parse JSON bodies (50MB로 상향)
+app.use(express.urlencoded({ extended: true, limit: '50mb' })) // Parse URL-encoded bodies (50MB로 상향)
 
 // uploads 폴더가 없으면 자동 생성
 if (!fs.existsSync('uploads')) {
@@ -902,52 +902,122 @@ function getHwpErrorMessage(filename: string): string {
 현재 지원되는 파일 형식: DOCX, PDF, XLSX, TXT, CSV, HWPX`
 }
 
-// LibreOffice를 사용한 HWP → DOCX 자동 변환 함수
+// LibreOffice를 사용한 HWP → DOCX 자동 변환 함수 (강화된 버전)
 async function convertHwpToDocxWithLibreOffice(hwpPath: string): Promise<string | null> {
   return new Promise((resolve, reject) => {
     const outputDir = path.dirname(hwpPath)
     const outputPath = path.join(outputDir, path.basename(hwpPath, '.hwp') + '.docx')
 
-    // LibreOffice 명령어로 HWP → DOCX 변환
-    const command = `soffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`
+    // 여러 가능한 LibreOffice 명령어 시도
+    const commands = [
+      `soffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`,
+      `libreoffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`,
+      `/usr/bin/soffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`,
+      `/usr/bin/libreoffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`,
+      `/usr/local/bin/soffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`,
+      `/usr/local/bin/libreoffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`
+    ]
 
-    console.log('LibreOffice 변환 명령어:', command)
+    let commandIndex = 0
 
-    exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
-      if (error) {
-        console.log('LibreOffice 변환 실패:', error.message)
-        console.log('stderr:', stderr)
+    function tryNextCommand() {
+      if (commandIndex >= commands.length) {
+        console.log('모든 LibreOffice 명령어 시도 실패')
         resolve(null)
         return
       }
 
-      console.log('LibreOffice 변환 성공:', stdout)
+      const command = commands[commandIndex]
+      console.log(`LibreOffice 변환 시도 ${commandIndex + 1}: ${command}`)
 
-      // 변환된 파일이 실제로 생성되었는지 확인
-      if (fs.existsSync(outputPath)) {
-        console.log('변환된 DOCX 파일 생성됨:', outputPath)
-        resolve(outputPath)
-      } else {
-        console.log('변환된 파일을 찾을 수 없음:', outputPath)
-        resolve(null)
-      }
-    })
+      exec(
+        command,
+        {
+          timeout: 60000, // 60초 타임아웃
+          env: {
+            ...process.env,
+            HOME: '/tmp',
+            DISPLAY: ':99'
+          }
+        },
+        (error, stdout, stderr) => {
+          console.log(`LibreOffice 변환 결과 ${commandIndex + 1}:`)
+          console.log('stdout:', stdout)
+          console.log('stderr:', stderr)
+
+          if (error) {
+            console.log(`LibreOffice 변환 실패 ${commandIndex + 1}:`, error.message)
+            commandIndex++
+            tryNextCommand()
+            return
+          }
+
+          // 변환된 파일이 실제로 생성되었는지 확인
+          if (fs.existsSync(outputPath)) {
+            console.log('LibreOffice 변환 성공! 생성된 DOCX 파일:', outputPath)
+            resolve(outputPath)
+          } else {
+            console.log(`변환된 파일을 찾을 수 없음: ${outputPath}`)
+            commandIndex++
+            tryNextCommand()
+          }
+        }
+      )
+    }
+
+    tryNextCommand()
   })
 }
 
-// LibreOffice 설치 확인 함수
+// LibreOffice 설치 확인 함수 (강화된 버전)
 async function checkLibreOfficeInstallation(): Promise<boolean> {
   return new Promise((resolve) => {
-    exec('which soffice', (error) => {
-      if (error) {
-        console.log('LibreOffice가 설치되지 않음')
+    // 여러 가능한 LibreOffice 경로 확인
+    const possiblePaths = [
+      'which soffice',
+      'which libreoffice',
+      'ls /usr/bin/soffice',
+      'ls /usr/bin/libreoffice',
+      'ls /usr/local/bin/soffice',
+      'ls /usr/local/bin/libreoffice',
+      'ls /opt/libreoffice*/program/soffice',
+      'ls /opt/libreoffice*/program/libreoffice'
+    ]
+
+    let checkIndex = 0
+
+    function checkNextPath() {
+      if (checkIndex >= possiblePaths.length) {
+        console.log('LibreOffice를 찾을 수 없음 - 모든 경로 확인 완료')
         resolve(false)
-      } else {
-        console.log('LibreOffice 설치 확인됨')
-        resolve(true)
+        return
       }
-    })
+
+      const cmd = possiblePaths[checkIndex]
+      console.log(`LibreOffice 확인 시도 ${checkIndex + 1}: ${cmd}`)
+
+      exec(cmd, (error, stdout, stderr) => {
+        if (!error && stdout && stdout.trim()) {
+          console.log(`LibreOffice 발견: ${stdout.trim()}`)
+          resolve(true)
+          return
+        }
+
+        checkIndex++
+        checkNextPath()
+      })
+    }
+
+    checkNextPath()
   })
 }
+
+// 전역 예외 핸들러 추가 (서버에서 모든 에러를 로그로 남김)
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err)
+})
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection:', reason)
+})
 
 export default app
