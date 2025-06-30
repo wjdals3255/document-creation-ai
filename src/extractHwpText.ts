@@ -454,6 +454,38 @@ export function extractTextFromHwpBinary(buffer: Buffer): string {
       console.log('텍스트 블록 추출 실패:', blockError)
     }
 
+    // 방법 5: 한글 문장 패턴 찾기 (새로 추가)
+    try {
+      const bufferString = buffer.toString('utf-8', 0, Math.min(buffer.length, 200000))
+
+      // 한글 문장 패턴 찾기 (한글이 포함된 연속된 텍스트)
+      const koreanSentencePattern = /[가-힣][^가-힣]*[가-힣][^가-힣]*[가-힣][^가-힣]*[가-힣]/g
+      const sentences = bufferString.match(koreanSentencePattern)
+
+      if (sentences && sentences.length > 0) {
+        console.log('한글 문장 패턴 추출 성공:', sentences.length, '개 문장')
+
+        // 문장들을 정리하고 필터링
+        const cleanedSentences = sentences
+          .map((sentence) => sentence.trim())
+          .filter((sentence) => {
+            const koreanChars = sentence.match(/[가-힣]/g)
+            return koreanChars && koreanChars.length >= 5 && sentence.length >= 15
+          })
+          .filter((sentence) => !/[A-Za-z0-9]{10,}/.test(sentence)) // 바이너리 데이터 제거
+
+        if (cleanedSentences.length > 0) {
+          const result = cleanedSentences.join('. ')
+          const cleanedText = cleanExtractedText(result)
+          if (cleanedText.length > 50) {
+            return cleanedText
+          }
+        }
+      }
+    } catch (patternError) {
+      console.log('한글 문장 패턴 추출 실패:', patternError)
+    }
+
     console.log('모든 인코딩 방법 실패')
     return ''
   } catch (error) {
@@ -466,14 +498,69 @@ export function extractTextFromHwpBinary(buffer: Buffer): string {
 function cleanExtractedText(text: string): string {
   return (
     text
-      // 바이너리 패턴 제거
-      .replace(/[A-Za-z0-9]{20,}/g, ' ') // 20자 이상의 연속된 영숫자 제거
-      .replace(/[0-9A-Fa-f]{8,}/g, ' ') // 8자 이상의 16진수 패턴 제거
+      // 1단계: 바이너리 패턴 제거 (더 강력하게)
+      .replace(/[A-Za-z0-9]{15,}/g, ' ') // 15자 이상의 연속된 영숫자 제거
+      .replace(/[0-9A-Fa-f]{6,}/g, ' ') // 6자 이상의 16진수 패턴 제거
       .replace(/[A-Za-z]{3,}\s+[A-Za-z]{3,}/g, ' ') // 연속된 영문 단어 제거
       .replace(/[A-Za-z0-9]{5,}[^가-힣\s]{5,}/g, ' ') // 한글이 아닌 연속된 문자 제거
-      // 특수문자 정리
+
+      // 2단계: HWP 파일 구조 정보 제거
+      .replace(/루트\s*항목\s*:\s*:1\s*파일\s*헤더/g, ' ')
+      .replace(/HH\s*wp\s*요약\s*정보/g, ' ')
+      .replace(/\.DD\s*oc\s*정보/g, ' ')
+      .replace(/Body\s*Text/g, ' ')
+      .replace(/Bin\s*Data/g, ' ')
+      .replace(/Prv\s*Image/g, ' ')
+      .replace(/Prv\s*Text/g, ' ')
+      .replace(/PNG\s*IHDR/g, ' ')
+      .replace(/sRGB\s*gAMA/g, ' ')
+      .replace(/a\s*pHYs/g, ' ')
+      .replace(/od\s*VfF/g, ' ')
+      .replace(/PP\s*j\s*A/g, ' ')
+      .replace(/Eho!ZX/g, ' ')
+      .replace(/YNL\s*y\s*A\s*C/g, ' ')
+      .replace(/F\s*z\s*:\s*{;H}/g, ' ')
+      .replace(/JPw\s*QG/g, ' ')
+      .replace(/lbbl\s*g1\s*KB/g, ' ')
+      .replace(/wm\s*S\s*LQ/g, ' ')
+      .replace(/VHO\s*WH/g, ' ')
+
+      // 3단계: 날짜/시간 패턴 제거
+      .replace(/\d{4}\s*-\s*\d{1,2}\s*-\s*\d{1,2}/g, ' ')
+      .replace(/\d{4}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}/g, ' ')
+      .replace(/\d{1,2}\s*:\s*\d{1,2}\s*:\s*\d{1,2}/g, ' ')
+      .replace(/\d{1,2}\s*:\s*\d{1,2}/g, ' ')
+
+      // 4단계: 특수문자 및 기호 정리
       .replace(/[^\w\s가-힣.,!?;:()[\]{}"'\-]/g, ' ')
       .replace(/\s+/g, ' ') // 연속된 공백을 하나로
+      .trim()
+
+      // 5단계: 한글 문장만 추출
+      .split(/[.!?]/)
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => {
+        if (sentence.length < 10) return false // 너무 짧은 문장 제거
+
+        // 한글 문자가 충분히 포함된 문장만 유지
+        const koreanChars = sentence.match(/[가-힣]/g)
+        if (!koreanChars || koreanChars.length < 3) return false
+
+        // 깨진 한글 패턴 제거 (자음/모음만 있는 경우)
+        const brokenKoreanPattern = /[ㄱ-ㅎㅏ-ㅣ]{3,}/g
+        if (brokenKoreanPattern.test(sentence)) return false
+
+        // 의미있는 한글 단어가 포함된 문장만 유지
+        const meaningfulKoreanWords = sentence.match(/[가-힣]{2,}/g)
+        if (!meaningfulKoreanWords || meaningfulKoreanWords.length < 1) return false
+
+        // 바이너리 데이터가 포함된 문장 제거
+        if (/[A-Za-z0-9]{8,}/.test(sentence)) return false
+
+        return true
+      })
+      .filter((sentence, index, arr) => arr.indexOf(sentence) === index) // 중복 제거
+      .join('. ')
       .trim()
   )
 }
