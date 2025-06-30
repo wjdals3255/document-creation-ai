@@ -519,7 +519,7 @@ async function convertHwpToTextViaHancomPdf(fileBuffer: Buffer, filename: string
     console.log('한컴 토큰 발급 성공')
 
     // 2. HWP → PDF 변환
-    const pdfBuffer = await hancomHwpToPdf(filePath, accessToken)
+    const pdfBuffer = await hancomHwpToPdf(filename, accessToken)
     console.log('HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
 
     // 3. PDF → 텍스트 추출
@@ -547,11 +547,10 @@ app.post('/extract-hwp-text-base64', async (req: any, res: any) => {
     // 1. 한컴 OAuth2 토큰 발급
     const accessToken = await getHancomAccessToken()
 
-    // 2. 한컴 API로 HWP → TXT 변환
-    const hancomResult = await hancomHwpToText(fileBuffer, saveName, accessToken)
-
-    // 3. 결과 반환
-    res.json({ text: hancomResult })
+    // 2. 한컴 API로 HWP → PDF 변환
+    const pdfBuffer = await hancomHwpToPdf(saveName, accessToken)
+    // 3. 결과 반환 (PDF 파일을 base64로 반환)
+    res.json({ pdfBase64: pdfBuffer.toString('base64') })
   } catch (err: any) {
     console.error('extract-hwp-text-base64 한컴 API 에러 상세:', err?.response?.data || err)
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
@@ -917,7 +916,7 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
     const accessToken = await getHancomAccessToken()
 
     // 2. HWP → PDF 변환
-    const pdfBuffer = await hancomHwpToPdf(req.file.path, accessToken)
+    const pdfBuffer = await hancomHwpToPdf(filename, accessToken)
 
     // 3. PDF 파일로 저장
     const pdfFilename = filename.replace(/\.hwp$/i, '.pdf')
