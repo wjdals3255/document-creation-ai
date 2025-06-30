@@ -373,8 +373,9 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
 
       function checkLibreOffice() {
         if (checkIndex >= checkCommands.length) {
-          console.log('LibreOffice가 설치되지 않았습니다. 기존 방식으로 fallback')
-          extractHwpText(filePath).then(resolve).catch(reject)
+          console.log('LibreOffice가 설치되지 않았습니다. HWP 파일 처리 불가 안내')
+          // HWP 파일 처리 불가 메시지 반환
+          resolve(getHwpErrorMessage(originalName))
           return
         }
 
@@ -404,8 +405,8 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
 
                   if (pandocError) {
                     console.log('Pandoc 변환도 실패:', pandocError.message)
-                    console.log('기존 extractHwpText 방식으로 fallback')
-                    extractHwpText(filePath).then(resolve).catch(reject)
+                    console.log('HWP 파일 처리 불가 안내')
+                    resolve(getHwpErrorMessage(originalName))
                     return
                   }
 
@@ -413,8 +414,8 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
                     console.log('Pandoc으로 DOCX 변환 성공')
                     processDocxFileForHwp(docxPath, filePath).then(resolve).catch(reject)
                   } else {
-                    console.log('DOCX 파일 생성 실패, 기존 방식으로 fallback')
-                    extractHwpText(filePath).then(resolve).catch(reject)
+                    console.log('DOCX 파일 생성 실패, HWP 파일 처리 불가 안내')
+                    resolve(getHwpErrorMessage(originalName))
                   }
                 })
               } else {
@@ -424,8 +425,8 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
                   console.log('생성된 DOCX 파일:', generatedDocxPath)
                   processDocxFileForHwp(generatedDocxPath, filePath).then(resolve).catch(reject)
                 } else {
-                  console.log('DOCX 파일을 찾을 수 없음, 기존 방식으로 fallback')
-                  extractHwpText(filePath).then(resolve).catch(reject)
+                  console.log('DOCX 파일을 찾을 수 없음, HWP 파일 처리 불가 안내')
+                  resolve(getHwpErrorMessage(originalName))
                 }
               }
             })
@@ -441,8 +442,8 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
     })
   } catch (conversionError: any) {
     console.log('변환 중 오류:', conversionError.message)
-    // 변환 실패 시 기존 방식으로 fallback
-    return extractHwpText(filePath)
+    // 변환 실패 시 HWP 파일 처리 불가 메시지 반환
+    return getHwpErrorMessage(originalName)
   }
 }
 
@@ -904,6 +905,24 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     console.log(`🔗 Health check: http://localhost:${PORT}/health`)
     console.log(`📄 HWP Extract: http://localhost:${PORT}/extract-hwp-text`)
   })
+}
+
+// HWP 파일 처리 시 명확한 안내 메시지 반환
+function getHwpErrorMessage(filename: string): string {
+  return `HWP 파일 "${filename}"은 현재 자동 텍스트 추출이 불가능합니다.
+
+📋 **HWP 파일 처리 한계:**
+• HWP 파일은 EUC-KR/CP949 인코딩을 사용하여 Node.js에서 자동 변환이 어려움
+• hwp.js, node-hwp, 바이너리 파싱 등 모든 방법이 인코딩 문제로 실패
+• 한컴 API는 서비스 중단 상태 (404 에러)
+• LibreOffice/Pandoc은 클라우드 환경에서 설치/실행 불가
+
+💡 **권장 해결책:**
+1. HWP 파일을 DOCX로 변환 후 업로드
+2. HWP 파일을 PDF로 변환 후 업로드 (OCR 필요할 수 있음)
+3. HWP 파일 내용을 텍스트로 복사하여 TXT 파일로 저장 후 업로드
+
+현재 지원되는 파일 형식: DOCX, PDF, XLSX, TXT, CSV, HWPX`
 }
 
 export default app

@@ -70,6 +70,24 @@ function cleanHwpText(rawText: string): string {
   return result
 }
 
+// HWP 파일 처리 시 명확한 안내 메시지 반환
+function getHwpErrorMessage(filename: string): string {
+  return `HWP 파일 "${filename}"은 현재 자동 텍스트 추출이 불가능합니다.
+
+📋 **HWP 파일 처리 한계:**
+• HWP 파일은 EUC-KR/CP949 인코딩을 사용하여 Node.js에서 자동 변환이 어려움
+• hwp.js, node-hwp, 바이너리 파싱 등 모든 방법이 인코딩 문제로 실패
+• 한컴 API는 서비스 중단 상태 (404 에러)
+• LibreOffice/Pandoc은 클라우드 환경에서 설치/실행 불가
+
+💡 **권장 해결책:**
+1. HWP 파일을 DOCX로 변환 후 업로드
+2. HWP 파일을 PDF로 변환 후 업로드 (OCR 필요할 수 있음)
+3. HWP 파일 내용을 텍스트로 복사하여 TXT 파일로 저장 후 업로드
+
+현재 지원되는 파일 형식: DOCX, PDF, XLSX, TXT, CSV, HWPX`
+}
+
 export async function extractHwpText(filePath: string): Promise<string> {
   const buffer = fs.readFileSync(filePath)
   const type = await fileType.fromBuffer(buffer)
@@ -231,7 +249,7 @@ export async function extractHwpText(filePath: string): Promise<string> {
       // 방법 3: 파일이 비어있지 않은 경우 기본 메시지
       if (buffer.length > 0) {
         console.log('HWP 파일이 감지되었으나 텍스트 추출에 실패했습니다.')
-        return 'HWP 파일이 감지되었으나 텍스트 추출에 실패했습니다. 한컴 API를 사용하거나 파일을 다시 확인해주세요.'
+        return getHwpErrorMessage(filePath.split('/').pop() || 'unknown.hwp')
       }
 
       throw new Error('HWP 파일 파싱에 실패했습니다.')
