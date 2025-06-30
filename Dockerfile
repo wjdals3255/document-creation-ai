@@ -20,4 +20,6 @@ RUN mkdir -p /app/uploads && chmod 777 /app/uploads
 ENV NODE_ENV=production
 ENV PORT=8080
 
+EXPOSE 8080
+
 CMD ["node", "dist/index.js"] 
