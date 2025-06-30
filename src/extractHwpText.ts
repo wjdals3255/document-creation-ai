@@ -46,31 +46,112 @@ export async function extractHwpText(filePath: string): Promise<string> {
       }
 
       try {
-        // 방법 1: hwp.js로 파싱 시도
+        // 방법 1: hwp.js로 파싱 시도 (개선된 버전)
         const base64 = buffer.toString('base64')
         const doc = parseHwp(base64 as any)
 
-        if (doc && doc.sections) {
-          console.log('hwp.js 파싱 성공, 섹션 수:', doc.sections.length)
+        if (doc && typeof doc === 'object') {
+          console.log('hwp.js 파싱 성공, 구조 확인 중...')
 
-          for (const section of doc.sections) {
-            for (const key in section) {
-              const value = (section as any)[key]
-              if (typeof value === 'object' && value !== null) {
-                if (Array.isArray(value)) {
-                  for (const item of value) {
-                    if (item && typeof item.text === 'string') {
-                      text += item.text + '\n'
+          // 본문 텍스트만 추출하는 함수
+          const extractTextFromHwpDoc = (hwpDoc: any): string => {
+            let result: string[] = []
+
+            // 구조 1: sections 구조
+            if (hwpDoc.sections && Array.isArray(hwpDoc.sections)) {
+              hwpDoc.sections.forEach((section: any) => {
+                // 문단 텍스트 추출
+                if (section.paragraphs && Array.isArray(section.paragraphs)) {
+                  section.paragraphs.forEach((para: any) => {
+                    if (para.text && typeof para.text === 'string') {
+                      result.push(para.text.trim())
+                    }
+                  })
+                }
+
+                // 텍스트 블록 추출
+                if (section.texts && Array.isArray(section.texts)) {
+                  section.texts.forEach((textBlock: any) => {
+                    if (textBlock.text && typeof textBlock.text === 'string') {
+                      result.push(textBlock.text.trim())
+                    }
+                  })
+                }
+
+                // 기타 텍스트 필드들 확인 (한글이 포함된 것만)
+                Object.keys(section).forEach((key) => {
+                  const value = section[key]
+                  if (typeof value === 'string' && value.trim() && value.length > 5) {
+                    if (/[가-힣]/.test(value)) {
+                      result.push(value.trim())
                     }
                   }
-                }
-              }
+                })
+              })
             }
+
+            // 구조 2: bodyText 구조
+            else if (hwpDoc.bodyText && Array.isArray(hwpDoc.bodyText.sections)) {
+              hwpDoc.bodyText.sections.forEach((section: any) => {
+                if (section.paragraphs && Array.isArray(section.paragraphs)) {
+                  section.paragraphs.forEach((para: any) => {
+                    if (para.text && typeof para.text === 'string') {
+                      result.push(para.text.trim())
+                    }
+                  })
+                }
+              })
+            }
+
+            // 구조 3: 직접 텍스트 필드
+            else if (hwpDoc.text && typeof hwpDoc.text === 'string') {
+              result.push(hwpDoc.text.trim())
+            }
+
+            // 구조 4: 재귀적으로 모든 문자열 필드 찾기 (마지막 수단)
+            else {
+              const extractTextRecursively = (obj: any): string[] => {
+                const texts: string[] = []
+
+                if (typeof obj === 'string' && obj.trim() && obj.length > 5) {
+                  // 한글이 포함된 텍스트만 추가
+                  if (/[가-힣]/.test(obj)) {
+                    texts.push(obj.trim())
+                  }
+                } else if (Array.isArray(obj)) {
+                  obj.forEach((item) => {
+                    texts.push(...extractTextRecursively(item))
+                  })
+                } else if (typeof obj === 'object' && obj !== null) {
+                  Object.values(obj).forEach((value) => {
+                    texts.push(...extractTextRecursively(value))
+                  })
+                }
+
+                return texts
+              }
+
+              result = extractTextRecursively(hwpDoc)
+            }
+
+            // 결과 정리: 중복 제거, 빈 문자열 제거, 의미있는 텍스트만 유지
+            const cleanedResult = result
+              .filter((text) => text && text.trim() && text.length > 3) // 최소 3자 이상
+              .filter((text) => /[가-힣]/.test(text)) // 한글이 포함된 텍스트만
+              .filter((text, index, arr) => arr.indexOf(text) === index) // 중복 제거
+              .map((text) => text.trim())
+
+            return cleanedResult.join('\n')
           }
 
+          text = extractTextFromHwpDoc(doc)
+
           if (text.trim()) {
-            console.log('hwp.js로 텍스트 추출 성공, 길이:', text.length)
+            console.log('hwp.js로 본문 텍스트 추출 성공, 길이:', text.length)
+            console.log('추출된 텍스트 샘플:', text.substring(0, 200))
             return text.trim()
+          } else {
+            console.log('hwp.js 파싱은 성공했으나 본문 텍스트를 찾을 수 없음')
           }
         }
       } catch (hwpError: any) {

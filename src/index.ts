@@ -135,6 +135,108 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
   }
 })
 
+// hwp.js 파싱 결과에서 본문 텍스트만 추출하는 함수 (개선된 버전)
+function extractTextFromHwpJson(hwpJson: any): string {
+  let result: string[] = []
+
+  // hwp.js 파싱 결과 구조에 따라 본문 텍스트 추출
+  if (hwpJson && typeof hwpJson === 'object') {
+    // 구조 1: bodyText.sections 구조
+    if (hwpJson.bodyText && Array.isArray(hwpJson.bodyText.sections)) {
+      hwpJson.bodyText.sections.forEach((section: any) => {
+        if (section.paragraphs && Array.isArray(section.paragraphs)) {
+          section.paragraphs.forEach((para: any) => {
+            if (para.text && typeof para.text === 'string') {
+              result.push(para.text.trim())
+            }
+          })
+        }
+      })
+    }
+
+    // 구조 2: sections 구조 (직접 접근)
+    else if (hwpJson.sections && Array.isArray(hwpJson.sections)) {
+      hwpJson.sections.forEach((section: any) => {
+        // 문단 텍스트 추출
+        if (section.paragraphs && Array.isArray(section.paragraphs)) {
+          section.paragraphs.forEach((para: any) => {
+            if (para.text && typeof para.text === 'string') {
+              result.push(para.text.trim())
+            }
+          })
+        }
+
+        // 텍스트 블록 추출
+        if (section.texts && Array.isArray(section.texts)) {
+          section.texts.forEach((textBlock: any) => {
+            if (textBlock.text && typeof textBlock.text === 'string') {
+              result.push(textBlock.text.trim())
+            }
+          })
+        }
+
+        // 기타 텍스트 필드들 확인
+        Object.keys(section).forEach((key) => {
+          const value = section[key]
+          if (typeof value === 'string' && value.trim() && value.length > 5) {
+            // 한글이 포함된 텍스트만 추가
+            if (/[가-힣]/.test(value)) {
+              result.push(value.trim())
+            }
+          }
+        })
+      })
+    }
+
+    // 구조 3: 직접 텍스트 필드
+    else if (hwpJson.text && typeof hwpJson.text === 'string') {
+      result.push(hwpJson.text.trim())
+    }
+
+    // 구조 4: content 또는 body 필드
+    else if (hwpJson.content && typeof hwpJson.content === 'string') {
+      result.push(hwpJson.content.trim())
+    } else if (hwpJson.body && typeof hwpJson.body === 'string') {
+      result.push(hwpJson.body.trim())
+    }
+
+    // 구조 5: 재귀적으로 모든 문자열 필드 찾기 (마지막 수단)
+    else {
+      const extractTextRecursively = (obj: any): string[] => {
+        const texts: string[] = []
+
+        if (typeof obj === 'string' && obj.trim() && obj.length > 5) {
+          // 한글이 포함된 텍스트만 추가
+          if (/[가-힣]/.test(obj)) {
+            texts.push(obj.trim())
+          }
+        } else if (Array.isArray(obj)) {
+          obj.forEach((item) => {
+            texts.push(...extractTextRecursively(item))
+          })
+        } else if (typeof obj === 'object' && obj !== null) {
+          Object.values(obj).forEach((value) => {
+            texts.push(...extractTextRecursively(value))
+          })
+        }
+
+        return texts
+      }
+
+      result = extractTextRecursively(hwpJson)
+    }
+  }
+
+  // 결과 정리: 중복 제거, 빈 문자열 제거, 의미있는 텍스트만 유지
+  const cleanedResult = result
+    .filter((text) => text && text.trim() && text.length > 3) // 최소 3자 이상
+    .filter((text) => /[가-힣]/.test(text)) // 한글이 포함된 텍스트만
+    .filter((text, index, arr) => arr.indexOf(text) === index) // 중복 제거
+    .map((text) => text.trim())
+
+  return cleanedResult.join('\n')
+}
+
 // HWP → DOCX → 텍스트 변환 함수
 async function convertHwpToText(filePath: string, originalName: string): Promise<string> {
   try {
@@ -147,24 +249,36 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       const hwp = require('hwp.js')
       const hwpResult = await hwp.parse(fileBuffer.toString('base64'))
 
-      // hwpResult가 객체인 경우 처리
+      // hwpResult가 객체인 경우 본문 텍스트만 추출
       let hwpText = ''
       if (typeof hwpResult === 'object' && hwpResult !== null) {
-        // 객체의 모든 값을 문자열로 변환하여 추출
-        hwpText = JSON.stringify(hwpResult)
-        console.log('hwp.js 객체 결과를 JSON으로 변환')
+        hwpText = extractTextFromHwpJson(hwpResult)
+        console.log('hwp.js 본문 텍스트 추출, 길이:', hwpText.length)
+
+        // 추출된 텍스트가 의미있는지 확인
+        if (hwpText && hwpText.trim() && hwpText.length > 20) {
+          // 한글이 포함되어 있는지 확인
+          const koreanChars = hwpText.match(/[가-힣]/g)
+          if (koreanChars && koreanChars.length > 5) {
+            console.log('개선된 hwp.js 파싱 성공, 길이:', hwpText.length)
+            console.log('추출된 텍스트 샘플:', hwpText.substring(0, 200))
+            return hwpText.trim()
+          } else {
+            console.log('hwp.js 파싱 결과에 한글이 부족함')
+          }
+        } else {
+          console.log('hwp.js 파싱 결과가 너무 짧거나 비어있음')
+        }
       } else {
+        // 문자열로 반환된 경우
         hwpText = String(hwpResult || '')
-      }
-
-      console.log('hwp.js 파싱 결과 길이:', hwpText.length)
-      console.log('hwp.js 파싱 결과 샘플:', hwpText.substring(0, 100))
-
-      if (hwpText && hwpText.trim() && hwpText.length > 50) {
-        console.log('개선된 hwp.js 파싱 성공, 길이:', hwpText.length)
-        return hwpText
-      } else {
-        console.log('hwp.js 파싱 결과가 너무 짧거나 비어있음')
+        if (hwpText && hwpText.trim() && hwpText.length > 20) {
+          const koreanChars = hwpText.match(/[가-힣]/g)
+          if (koreanChars && koreanChars.length > 5) {
+            console.log('hwp.js 문자열 파싱 성공, 길이:', hwpText.length)
+            return hwpText.trim()
+          }
+        }
       }
     } catch (hwpError: any) {
       console.log('개선된 hwp.js 파싱 실패:', hwpError.message)
