@@ -73,74 +73,49 @@ app.post('/extract-hwp-text', upload.array('data'), async (req: any, res: any) =
 })
 
 // HWP 텍스트 추출 API (개선된 버전 - HWP는 DOCX 변환 후 처리)
-app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, res: any) => {
-  console.log('==== /extract-hwp-text-enhanced 호출됨 ====')
-  console.log('req.files:', req.files)
-  console.log('req.body:', req.body)
+app.post('/extract-hwp-text-enhanced', upload.single('data'), async (req: any, res: any) => {
+  if (!req.file) {
+    return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+  }
+  const ext = path.extname(req.file.originalname).toLowerCase()
+  const filePath = req.file.path
+  const uploadsDir = 'uploads'
 
-  // 요청 타임아웃 설정
-  req.setTimeout(300000) // 5분
-  res.setTimeout(300000) // 5분
-
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
-    }
-
-    const results = await Promise.all(
-      req.files.map(async (file: any) => {
-        try {
-          let text = ''
-
-          // HWP 파일인 경우 한컴 API 우선 시도
-          if (file.originalname.toLowerCase().endsWith('.hwp')) {
-            console.log('HWP 파일 감지, 한컴 API 우선 시도...')
-
-            try {
-              const fileBuffer = fs.readFileSync(file.path)
-              // 한컴 API를 통한 HWP → PDF → 텍스트 추출 시도
-              text = await convertHwpToTextViaHancomPdf(fileBuffer, file.originalname)
-              console.log('한컴 API 성공!')
-            } catch (hancomError: any) {
-              console.log('한컴 API 실패, LibreOffice 변환 시도...')
-
-              // 한컴 API 실패 시 LibreOffice 변환 시도
-              try {
-                text = await convertHwpToText(file.path, file.originalname)
-                console.log('LibreOffice 변환 성공!')
-              } catch (libreOfficeError: any) {
-                console.log('LibreOffice 변환도 실패, 한컴 TXT API 시도...')
-
-                // LibreOffice도 실패 시 한컴 TXT API 시도
-                try {
-                  const fileBuffer = fs.readFileSync(file.path)
-                  const accessToken = await getHancomAccessToken()
-                  text = await hancomHwpToText(fileBuffer, file.originalname, accessToken)
-                  console.log('한컴 TXT API 성공!')
-                } catch (hancomTxtError: any) {
-                  console.log('모든 변환 방법 실패, 안내 메시지 반환')
-                  text = getHwpErrorMessage(file.originalname)
-                }
-              }
-            }
-          } else {
-            // 다른 파일들은 기존 방식으로 처리
-            text = await extractHwpText(file.path)
-          }
-
-          return { filename: file.originalname, text }
-        } catch (err: any) {
-          console.error(`파일 처리 중 오류 (${file.originalname}):`, err)
-          return { filename: file.originalname, error: err.message }
+  if (ext === '.hwp') {
+    // HWP → PDF 변환 (LibreOffice 또는 한컴 API 활용)
+    try {
+      // LibreOffice 변환 명령어
+      const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+      const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${uploadsDir}" "${filePath}"`
+      const { exec } = require('child_process')
+      await new Promise((resolve, reject) => {
+        exec(cmd, (error: any, stdout: any, stderr: any) => {
+          if (error) return reject(error)
+          if (!fs.existsSync(pdfPath)) return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+          resolve(true)
+        })
+      })
+      // 원본 HWP 파일 삭제
+      fs.unlinkSync(filePath)
+      // PDF 파일을 바로 전송
+      res.download(pdfPath, path.basename(pdfPath), (err: any) => {
+        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+        if (err) {
+          console.error('PDF 다운로드 중 오류:', err)
         }
       })
-    )
-
-    // 응답 전송
-    res.json({ results })
-  } catch (err: any) {
-    console.error('전체 처리 중 오류:', err)
-    res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
+    } catch (err: any) {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: err.message })
+    }
+  } else {
+    // 나머지 파일은 원본 그대로 전송
+    res.download(filePath, req.file.originalname, (err: any) => {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      if (err) {
+        console.error('파일 다운로드 중 오류:', err)
+      }
+    })
   }
 })
 
@@ -1037,16 +1012,25 @@ app.post('/convert-and-serve', upload.single('data'), async (req: any, res: any)
       })
       // 원본 HWP 파일 삭제
       fs.unlinkSync(filePath)
-      // PDF 다운로드 링크 반환
-      return res.json({ type: 'pdf', downloadUrl: `/uploads/${path.basename(pdfPath)}` })
+      // PDF 파일을 바로 전송
+      res.download(pdfPath, path.basename(pdfPath), (err: any) => {
+        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+        if (err) {
+          console.error('PDF 다운로드 중 오류:', err)
+        }
+      })
     } catch (err: any) {
-      // 변환 실패 시 에러 반환
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
       return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: err.message })
     }
   } else {
-    // 나머지 파일은 원본 그대로 반환
-    return res.json({ type: 'original', downloadUrl: `/uploads/${req.file.filename}` })
+    // 나머지 파일은 원본 그대로 전송
+    res.download(filePath, req.file.originalname, (err: any) => {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      if (err) {
+        console.error('파일 다운로드 중 오류:', err)
+      }
+    })
   }
 })
 
