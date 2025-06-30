@@ -297,7 +297,43 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
   try {
     console.log('HWP → DOCX 변환 시작:', originalName)
 
-    // 1. 개선된 hwp.js 파싱 시도 (우선)
+    // 1. LibreOffice 자동 변환 시도 (우선)
+    console.log('LibreOffice 자동 변환 시도...')
+    const isLibreOfficeInstalled = await checkLibreOfficeInstallation()
+
+    if (isLibreOfficeInstalled) {
+      console.log('LibreOffice 설치 확인됨, 변환 시도...')
+      const docxPath = await convertHwpToDocxWithLibreOffice(filePath)
+
+      if (docxPath && fs.existsSync(docxPath)) {
+        console.log('LibreOffice 변환 성공, DOCX 처리 중...')
+        try {
+          const docxText = await processDocxFileForHwp(docxPath, filePath)
+          if (docxText && docxText.trim() && docxText.length > 20) {
+            console.log('LibreOffice → DOCX → 텍스트 추출 성공, 길이:', docxText.length)
+            console.log('추출된 텍스트 샘플:', docxText.substring(0, 200))
+
+            // 임시 DOCX 파일 정리
+            try {
+              fs.unlinkSync(docxPath)
+              console.log('임시 DOCX 파일 정리 완료')
+            } catch (cleanupError) {
+              console.log('임시 파일 정리 실패:', cleanupError)
+            }
+
+            return docxText.trim()
+          }
+        } catch (docxError: any) {
+          console.log('DOCX 처리 실패:', docxError.message)
+        }
+      } else {
+        console.log('LibreOffice 변환 실패')
+      }
+    } else {
+      console.log('LibreOffice가 설치되지 않음')
+    }
+
+    // 2. 개선된 hwp.js 파싱 시도 (백업)
     console.log('개선된 hwp.js 파싱 시도...')
     try {
       const fileBuffer = fs.readFileSync(filePath)
@@ -345,7 +381,7 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       console.log('개선된 hwp.js 파싱 실패:', hwpError.message)
     }
 
-    // 2. 한글 인코딩 개선된 바이너리 파싱 시도
+    // 3. 한글 인코딩 개선된 바이너리 파싱 시도
     console.log('한글 인코딩 개선된 바이너리 파싱 시도...')
     try {
       const fileBuffer = fs.readFileSync(filePath)
@@ -361,7 +397,7 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       console.log('한글 인코딩 개선 파싱 실패:', encodingError.message)
     }
 
-    // 3. 더 강력한 바이너리 파싱 시도
+    // 4. 더 강력한 바이너리 파싱 시도
     console.log('더 강력한 바이너리 파싱 시도...')
     try {
       const fileBuffer = fs.readFileSync(filePath)
@@ -378,85 +414,9 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       console.log('강력한 바이너리 파싱 실패:', binaryError.message)
     }
 
-    // 4. LibreOffice 설치 확인 (백업)
-    console.log('LibreOffice 설치 확인 시작...')
-    const { exec } = require('child_process')
-
-    return new Promise((resolve, reject) => {
-      // LibreOffice 설치 확인 (여러 경로 시도)
-      const checkCommands = ['which libreoffice', 'which soffice', 'ls /usr/bin/libreoffice', 'ls /usr/bin/soffice']
-
-      let checkIndex = 0
-
-      function checkLibreOffice() {
-        if (checkIndex >= checkCommands.length) {
-          console.log('LibreOffice가 설치되지 않았습니다. HWP 파일 처리 불가 안내')
-          // HWP 파일 처리 불가 메시지 반환
-          resolve(getHwpErrorMessage(originalName))
-          return
-        }
-
-        const cmd = checkCommands[checkIndex]
-        console.log(`LibreOffice 확인 시도 ${checkIndex + 1}: ${cmd}`)
-
-        exec(cmd, (checkError: any, checkStdout: any, checkStderr: any) => {
-          console.log(`LibreOffice 확인 결과 ${checkIndex + 1}:`, checkStdout || 'not found')
-
-          if (!checkError && checkStdout && checkStdout.trim()) {
-            // LibreOffice 발견, 변환 시도
-            const libreOfficeCmd = checkStdout.trim()
-            const docxPath = filePath.replace(/\.hwp$/, '.docx')
-            const convertCmd = `${libreOfficeCmd} --headless --convert-to docx "${filePath}" --outdir "${path.dirname(filePath)}"`
-            console.log('LibreOffice 변환 명령어:', convertCmd)
-
-            exec(convertCmd, (error: any, stdout: any, stderr: any) => {
-              console.log('LibreOffice stdout:', stdout)
-              console.log('LibreOffice stderr:', stderr)
-
-              if (error) {
-                console.log('LibreOffice 변환 실패:', error.message)
-                // Pandoc 시도
-                exec(`pandoc "${filePath}" -o "${docxPath}"`, (pandocError: any, pandocStdout: any, pandocStderr: any) => {
-                  console.log('Pandoc stdout:', pandocStdout)
-                  console.log('Pandoc stderr:', pandocStderr)
-
-                  if (pandocError) {
-                    console.log('Pandoc 변환도 실패:', pandocError.message)
-                    console.log('HWP 파일 처리 불가 안내')
-                    resolve(getHwpErrorMessage(originalName))
-                    return
-                  }
-
-                  if (fs.existsSync(docxPath)) {
-                    console.log('Pandoc으로 DOCX 변환 성공')
-                    processDocxFileForHwp(docxPath, filePath).then(resolve).catch(reject)
-                  } else {
-                    console.log('DOCX 파일 생성 실패, HWP 파일 처리 불가 안내')
-                    resolve(getHwpErrorMessage(originalName))
-                  }
-                })
-              } else {
-                console.log('LibreOffice로 DOCX 변환 성공')
-                const generatedDocxPath = filePath.replace(/\.hwp$/, '.docx')
-                if (fs.existsSync(generatedDocxPath)) {
-                  console.log('생성된 DOCX 파일:', generatedDocxPath)
-                  processDocxFileForHwp(generatedDocxPath, filePath).then(resolve).catch(reject)
-                } else {
-                  console.log('DOCX 파일을 찾을 수 없음, HWP 파일 처리 불가 안내')
-                  resolve(getHwpErrorMessage(originalName))
-                }
-              }
-            })
-          } else {
-            // 다음 확인 명령어 시도
-            checkIndex++
-            checkLibreOffice()
-          }
-        })
-      }
-
-      checkLibreOffice()
-    })
+    // 모든 방법 실패 시 안내 메시지 반환
+    console.log('모든 HWP 처리 방법 실패, 안내 메시지 반환')
+    return getHwpErrorMessage(originalName)
   } catch (conversionError: any) {
     console.log('변환 중 오류:', conversionError.message)
     // 변환 실패 시 HWP 파일 처리 불가 메시지 반환
@@ -940,6 +900,54 @@ function getHwpErrorMessage(filename: string): string {
 3. HWP 파일 내용을 텍스트로 복사하여 TXT 파일로 저장 후 업로드
 
 현재 지원되는 파일 형식: DOCX, PDF, XLSX, TXT, CSV, HWPX`
+}
+
+// LibreOffice를 사용한 HWP → DOCX 자동 변환 함수
+async function convertHwpToDocxWithLibreOffice(hwpPath: string): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const outputDir = path.dirname(hwpPath)
+    const outputPath = path.join(outputDir, path.basename(hwpPath, '.hwp') + '.docx')
+
+    // LibreOffice 명령어로 HWP → DOCX 변환
+    const command = `soffice --headless --convert-to docx --outdir "${outputDir}" "${hwpPath}"`
+
+    console.log('LibreOffice 변환 명령어:', command)
+
+    exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.log('LibreOffice 변환 실패:', error.message)
+        console.log('stderr:', stderr)
+        resolve(null)
+        return
+      }
+
+      console.log('LibreOffice 변환 성공:', stdout)
+
+      // 변환된 파일이 실제로 생성되었는지 확인
+      if (fs.existsSync(outputPath)) {
+        console.log('변환된 DOCX 파일 생성됨:', outputPath)
+        resolve(outputPath)
+      } else {
+        console.log('변환된 파일을 찾을 수 없음:', outputPath)
+        resolve(null)
+      }
+    })
+  })
+}
+
+// LibreOffice 설치 확인 함수
+async function checkLibreOfficeInstallation(): Promise<boolean> {
+  return new Promise((resolve) => {
+    exec('which soffice', (error) => {
+      if (error) {
+        console.log('LibreOffice가 설치되지 않음')
+        resolve(false)
+      } else {
+        console.log('LibreOffice 설치 확인됨')
+        resolve(true)
+      }
+    })
+  })
 }
 
 export default app
