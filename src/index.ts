@@ -1013,6 +1013,46 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
   }
 })
 
+// 새로운 엔드포인트: HWP는 PDF로 변환, 나머지는 원본 반환
+app.post('/convert-and-serve', upload.single('data'), async (req: any, res: any) => {
+  if (!req.file) {
+    return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+  }
+  const ext = path.extname(req.file.originalname).toLowerCase()
+  const filePath = req.file.path
+  const uploadsDir = 'uploads'
+
+  if (ext === '.hwp') {
+    // HWP → PDF 변환 (LibreOffice 또는 한컴 API 활용)
+    try {
+      // LibreOffice 변환 명령어
+      const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+      const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${uploadsDir}" "${filePath}"`
+      await new Promise((resolve, reject) => {
+        exec(cmd, (error, stdout, stderr) => {
+          if (error) return reject(error)
+          if (!fs.existsSync(pdfPath)) return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+          resolve(true)
+        })
+      })
+      // 원본 HWP 파일 삭제
+      fs.unlinkSync(filePath)
+      // PDF 다운로드 링크 반환
+      return res.json({ type: 'pdf', downloadUrl: `/uploads/${path.basename(pdfPath)}` })
+    } catch (err: any) {
+      // 변환 실패 시 에러 반환
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: err.message })
+    }
+  } else {
+    // 나머지 파일은 원본 그대로 반환
+    return res.json({ type: 'original', downloadUrl: `/uploads/${req.file.filename}` })
+  }
+})
+
+// 정적 파일 서빙 (업로드된 파일 다운로드 지원)
+app.use('/uploads', express.static('uploads'))
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
