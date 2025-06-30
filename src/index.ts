@@ -82,43 +82,26 @@ app.post('/extract-hwp-text-enhanced', upload.single('data'), async (req: any, r
   const uploadsDir = 'uploads'
 
   if (ext === '.hwp') {
-    // HWP → PDF 변환 (LibreOffice 또는 한컴 API 활용)
     try {
-      // LibreOffice 변환 명령어
+      // 1. 한컴 OAuth2 토큰 발급
+      const accessToken = await getHancomAccessToken()
+      // 2. HWP → PDF 변환
+      const pdfBuffer = await hancomHwpToPdf(filePath, accessToken)
+      // 3. PDF 파일로 저장
       const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
-      const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${uploadsDir}" "${filePath}"`
-      const { exec } = require('child_process')
-      console.log('[HWP→PDF] 변환 명령 실행 시작:', cmd)
-      await new Promise((resolve, reject) => {
-        exec(cmd, (error: any, stdout: any, stderr: any) => {
-          console.log('[HWP→PDF] LibreOffice 명령 실행 완료')
-          console.log('[HWP→PDF] LibreOffice stdout:', stdout)
-          console.log('[HWP→PDF] LibreOffice stderr:', stderr)
-          if (error) {
-            console.error('[HWP→PDF] LibreOffice 변환 에러:', error)
-            return reject(error)
-          }
-          if (!fs.existsSync(pdfPath)) {
-            console.error('[HWP→PDF] PDF 파일이 생성되지 않았습니다:', pdfPath)
-            return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
-          }
-          resolve(true)
-        })
-      })
-      // 원본 HWP 파일 삭제
+      fs.writeFileSync(pdfPath, pdfBuffer)
+      // 4. 원본 HWP 파일 삭제
       fs.unlinkSync(filePath)
-      // PDF 파일을 바로 전송
+      // 5. PDF 파일 다운로드
       res.download(pdfPath, path.basename(pdfPath), (err: any) => {
         if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
         if (err) {
-          console.error('[HWP→PDF] PDF 다운로드 중 오류:', err)
+          console.error('[한컴API] PDF 다운로드 중 오류:', err)
         }
       })
-    } catch (err) {
+    } catch (err: any) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-      // 에러 메시지에 변환 명령어, 파일명, 에러 내용을 포함
-      console.error('[HWP→PDF] 최종 변환 실패:', (err as any).message)
-      return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: (err as any).message, file: req.file.originalname })
+      return res.status(500).json({ error: 'HWP → PDF 변환 실패(한컴API)', detail: err.message, file: req.file.originalname })
     }
   } else {
     // 나머지 파일은 원본 그대로 전송
@@ -500,58 +483,30 @@ async function processDocxFileForHwp(docxPath: string, originalFilePath: string)
   }
 }
 
-// Hancom OAuth2 토큰 발급 함수
+// 한컴 OAuth2 토큰 발급 함수
 async function getHancomAccessToken() {
-  const clientId = '5WRG3mFySToKYS4CkoqB'
-  const clientSecret = 'slfUCDJ4s3'
-  const tokenUrl = 'https://api.hancomdocs.com/oauth2/token'
-
-  const params = new URLSearchParams()
-  params.append('grant_type', 'client_credentials')
-  params.append('client_id', clientId)
-  params.append('client_secret', clientSecret)
-
-  const res = await axios.post(tokenUrl, params, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  const res = await axios.post('https://api.hancomdocs.com/v1.0/oauth2/token', {
+    grant_type: 'client_credentials',
+    client_id: '2J7a2v2bSP9iCJ6rf0lS',
+    client_secret: '9acOeuSFaD'
   })
   return res.data.access_token
 }
 
-// Hancom HWP → TXT 변환 함수
-async function hancomHwpToText(fileBuffer: Buffer, filename: string, accessToken: string) {
-  const apiUrl = 'https://api.hancomdocs.com/v1.0/convert/txt'
-  const res = await axios.post(apiUrl, fileBuffer, {
+// 한컴 HWP → PDF 변환 함수
+async function hancomHwpToPdf(filePath: string, accessToken: string): Promise<Buffer> {
+  const fs = require('fs')
+  const fileBuffer = fs.readFileSync(filePath)
+  const res = await axios.post('https://api.hancomdocs.com/v1.0/convert/pdf', fileBuffer, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/octet-stream',
-      Accept: 'application/json'
+      Accept: 'application/pdf'
     },
-    params: { fileName: filename }
+    params: { fileName: filePath.split('/').pop() },
+    responseType: 'arraybuffer'
   })
-  return res.data // 변환된 텍스트
-}
-
-// Hancom HWP → PDF 변환 함수 (한컴 통합문서뷰어 API)
-async function hancomHwpToPdf(fileBuffer: Buffer, filename: string, accessToken: string) {
-  try {
-    // 한컴 통합문서뷰어 API: HWP → PDF 변환
-    const apiUrl = 'https://api.hancomdocs.com/v1.0/convert/pdf'
-    const res = await axios.post(apiUrl, fileBuffer, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/octet-stream',
-        Accept: 'application/pdf'
-      },
-      params: { fileName: filename },
-      responseType: 'arraybuffer' // PDF 바이너리 데이터 받기
-    })
-
-    console.log('한컴 API HWP → PDF 변환 성공')
-    return res.data // PDF 바이너리 데이터
-  } catch (error: any) {
-    console.error('한컴 API HWP → PDF 변환 실패:', error.response?.data || error.message)
-    throw error
-  }
+  return Buffer.from(res.data)
 }
 
 // 한컴 API를 통한 HWP → PDF → 텍스트 추출 파이프라인
@@ -564,7 +519,7 @@ async function convertHwpToTextViaHancomPdf(fileBuffer: Buffer, filename: string
     console.log('한컴 토큰 발급 성공')
 
     // 2. HWP → PDF 변환
-    const pdfBuffer = await hancomHwpToPdf(fileBuffer, filename, accessToken)
+    const pdfBuffer = await hancomHwpToPdf(filePath, accessToken)
     console.log('HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
 
     // 3. PDF → 텍스트 추출
@@ -962,7 +917,7 @@ app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, r
     const accessToken = await getHancomAccessToken()
 
     // 2. HWP → PDF 변환
-    const pdfBuffer = await hancomHwpToPdf(fileBuffer, filename, accessToken)
+    const pdfBuffer = await hancomHwpToPdf(req.file.path, accessToken)
 
     // 3. PDF 파일로 저장
     const pdfFilename = filename.replace(/\.hwp$/i, '.pdf')
