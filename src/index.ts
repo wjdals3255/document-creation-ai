@@ -237,6 +237,61 @@ function extractTextFromHwpJson(hwpJson: any): string {
   return cleanedResult.join('\n')
 }
 
+// HWP 텍스트 후처리 함수 (깨진 텍스트 정리)
+function cleanHwpText(rawText: string): string {
+  if (!rawText || typeof rawText !== 'string') {
+    return ''
+  }
+
+  console.log('원본 HWP 텍스트 길이:', rawText.length)
+  console.log('원본 HWP 텍스트 샘플:', rawText.substring(0, 200))
+
+  // 1단계: 기본 정리
+  let cleaned = rawText
+    // 바이너리/인코딩 관련 패턴 제거
+    .replace(/[A-Za-z0-9]{20,}/g, ' ') // 20자 이상의 연속된 영숫자 제거
+    .replace(/[0-9A-Fa-f]{8,}/g, ' ') // 8자 이상의 16진수 패턴 제거
+    .replace(/[A-Za-z]{3,}\s+[A-Za-z]{3,}/g, ' ') // 연속된 영문 단어 제거
+    .replace(/[A-Za-z0-9]{5,}[^가-힣\s]{5,}/g, ' ') // 한글이 아닌 연속된 문자 제거
+    // 특수문자 및 기호 정리
+    .replace(/[^\w\s가-힣.,!?;:()[\]{}"'\-]/g, ' ')
+    .replace(/\s+/g, ' ') // 연속된 공백을 하나로
+    .trim()
+
+  // 2단계: 한글 문장 추출
+  const sentences = cleaned
+    .split(/[.!?]/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => {
+      if (sentence.length < 10) return false // 너무 짧은 문장 제거
+
+      // 한글 문자가 충분히 포함된 문장만 유지
+      const koreanChars = sentence.match(/[가-힣]/g)
+      if (!koreanChars || koreanChars.length < 3) return false
+
+      // 깨진 한글 패턴 제거 (자음/모음만 있는 경우)
+      const brokenKoreanPattern = /[ㄱ-ㅎㅏ-ㅣ]{3,}/g
+      if (brokenKoreanPattern.test(sentence)) return false
+
+      // 의미있는 한글 단어가 포함된 문장만 유지
+      const meaningfulKoreanWords = sentence.match(/[가-힣]{2,}/g)
+      if (!meaningfulKoreanWords || meaningfulKoreanWords.length < 1) return false
+
+      return true
+    })
+
+  // 3단계: 결과 정리
+  const result = sentences
+    .filter((sentence, index, arr) => arr.indexOf(sentence) === index) // 중복 제거
+    .join('. ')
+    .trim()
+
+  console.log('정리된 HWP 텍스트 길이:', result.length)
+  console.log('정리된 HWP 텍스트 샘플:', result.substring(0, 200))
+
+  return result
+}
+
 // HWP → DOCX → 텍스트 변환 함수
 async function convertHwpToText(filePath: string, originalName: string): Promise<string> {
   try {
@@ -255,6 +310,9 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
         hwpText = extractTextFromHwpJson(hwpResult)
         console.log('hwp.js 본문 텍스트 추출, 길이:', hwpText.length)
 
+        // 후처리 함수로 깨진 텍스트 정리
+        hwpText = cleanHwpText(hwpText)
+
         // 추출된 텍스트가 의미있는지 확인
         if (hwpText && hwpText.trim() && hwpText.length > 20) {
           // 한글이 포함되어 있는지 확인
@@ -272,6 +330,9 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       } else {
         // 문자열로 반환된 경우
         hwpText = String(hwpResult || '')
+        // 후처리 함수로 깨진 텍스트 정리
+        hwpText = cleanHwpText(hwpText)
+
         if (hwpText && hwpText.trim() && hwpText.length > 20) {
           const koreanChars = hwpText.match(/[가-힣]/g)
           if (koreanChars && koreanChars.length > 5) {
