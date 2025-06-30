@@ -77,6 +77,11 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
   console.log('==== /extract-hwp-text-enhanced 호출됨 ====')
   console.log('req.files:', req.files)
   console.log('req.body:', req.body)
+
+  // 요청 타임아웃 설정
+  req.setTimeout(300000) // 5분
+  res.setTimeout(300000) // 5분
+
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
@@ -125,12 +130,16 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
 
           return { filename: file.originalname, text }
         } catch (err: any) {
+          console.error(`파일 처리 중 오류 (${file.originalname}):`, err)
           return { filename: file.originalname, error: err.message }
         }
       })
     )
+
+    // 응답 전송
     res.json({ results })
   } catch (err: any) {
+    console.error('전체 처리 중 오류:', err)
     res.status(500).json({ error: '텍스트 추출 실패', detail: err.message })
   }
 })
@@ -876,11 +885,47 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 // Start server (Vercel에서는 export만 하면 됨)
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  app.listen(PORT, () => {
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`🚀 Server is running on port ${PORT}`)
     console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`)
     console.log(`🔗 Health check: http://localhost:${PORT}/health`)
     console.log(`📄 HWP Extract: http://localhost:${PORT}/extract-hwp-text`)
+  })
+
+  // 서버 타임아웃 설정
+  server.timeout = 300000 // 5분
+  server.keepAliveTimeout = 65000 // 65초
+  server.headersTimeout = 66000 // 66초
+
+  // 서버 에러 핸들링
+  server.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`❌ Port ${PORT} is already in use`)
+      console.error('💡 Please try:')
+      console.error(`   lsof -i :${PORT}`)
+      console.error(`   kill -9 <PID>`)
+      process.exit(1)
+    } else {
+      console.error('❌ Server error:', error)
+      process.exit(1)
+    }
+  })
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('🛑 SIGTERM received, shutting down gracefully')
+    server.close(() => {
+      console.log('✅ Server closed')
+      process.exit(0)
+    })
+  })
+
+  process.on('SIGINT', () => {
+    console.log('🛑 SIGINT received, shutting down gracefully')
+    server.close(() => {
+      console.log('✅ Server closed')
+      process.exit(0)
+    })
   })
 }
 
