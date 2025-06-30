@@ -1024,55 +1024,42 @@ app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, 
   }
 })
 
-// 한컴 API를 활용한 HWP → PDF 변환 API (PDF 다운로드)
-app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, res: any) => {
-  console.log('==== /convert-hwp-to-pdf-hancom 호출됨 ====')
-
+// Microsoft Graph API만 사용하는 HWP → PDF 변환 전용 엔드포인트
+app.post('/convert-hwp-to-pdf', upload.single('data'), async (req: any, res: any) => {
+  console.log('==== /convert-hwp-to-pdf 호출됨 ====')
   try {
     if (!req.file) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
     }
-
     const fileBuffer = fs.readFileSync(req.file.path)
     const filename = req.file.originalname
-
     console.log(`HWP → PDF 변환 시작: ${filename}`)
 
-    // 1. 임시 HWP 파일 생성
-    const tempFilePath = `uploads/temp_${Date.now()}.hwp`
-    fs.writeFileSync(tempFilePath, fileBuffer)
-
-    // 2. Microsoft Graph API를 통한 HWP → PDF 변환
+    // Microsoft Graph API를 통한 HWP → PDF 변환
     const pdfBuffer = await msWordOnlineHwpToPdf(fileBuffer, filename)
     console.log('Microsoft Graph API HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
 
-    // 3. PDF 파일로 저장
+    // PDF 파일로 저장
     const pdfFilename = filename.replace(/\.hwp$/i, '.pdf')
     const pdfPath = path.join('uploads', `ms_${Date.now()}_${pdfFilename}`)
     fs.writeFileSync(pdfPath, pdfBuffer)
-
     console.log(`PDF 변환 완료: ${pdfPath}`)
 
-    // 4. PDF 파일 다운로드
+    // PDF 파일 다운로드
     res.download(pdfPath, pdfFilename, (err: any) => {
       // 임시 파일 정리
-      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath)
-      if (fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath)
-      }
-
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
+      if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
       if (err) {
         console.error('PDF 다운로드 중 오류:', err)
       }
     })
   } catch (error: any) {
     console.error('Microsoft Graph API를 통한 PDF 변환 실패:', error)
-
     // 임시 파일 정리
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path)
     }
-
     res.status(500).json({
       error: 'Microsoft Graph API를 통한 PDF 변환 실패',
       detail: error.message
