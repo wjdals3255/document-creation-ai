@@ -249,6 +249,14 @@ export async function extractHwpText(filePath: string): Promise<string> {
       // 방법 3: 파일이 비어있지 않은 경우 기본 메시지
       if (buffer.length > 0) {
         console.log('HWP 파일이 감지되었으나 텍스트 추출에 실패했습니다.')
+
+        // 마지막 시도: 더 강력한 바이너리 파싱
+        const lastResortText = extractTextFromHwpBinary(buffer)
+        if (lastResortText && lastResortText.trim() && lastResortText.length > 50) {
+          console.log('마지막 시도로 텍스트 추출 성공, 길이:', lastResortText.length)
+          return lastResortText.trim()
+        }
+
         return getHwpErrorMessage(filePath.split('/').pop() || 'unknown.hwp')
       }
 
@@ -335,25 +343,34 @@ export async function extractHwpText(filePath: string): Promise<string> {
 }
 
 // HWP 바이너리에서 텍스트 추출하는 개선된 함수
-function extractTextFromHwpBinary(buffer: Buffer): string {
+export function extractTextFromHwpBinary(buffer: Buffer): string {
   try {
     console.log('바이너리 파싱 개선 시도...')
 
-    // 방법 1: UTF-8 인코딩 시도
-    try {
-      const utf8String = buffer.toString('utf-8')
-      const koreanPattern = /[가-힣]+/g
-      const utf8Matches = utf8String.match(koreanPattern)
+    // 방법 1: 다양한 인코딩 시도
+    const encodings = ['utf8', 'ascii', 'latin1', 'binary']
 
-      if (utf8Matches && utf8Matches.length > 0) {
-        console.log('UTF-8 인코딩으로 한글 텍스트 추출 성공:', utf8Matches.length, '개')
-        return utf8Matches.join(' ')
+    for (const encoding of encodings) {
+      try {
+        const text = buffer.toString(encoding as BufferEncoding)
+
+        // 한글 문자가 포함되어 있는지 확인
+        const koreanChars = text.match(/[가-힣]/g)
+        if (koreanChars && koreanChars.length > 10) {
+          console.log(`${encoding} 인코딩으로 한글 텍스트 추출 성공: ${koreanChars.length} 개`)
+
+          // 텍스트 정리 및 필터링
+          const cleanedText = cleanExtractedText(text)
+          if (cleanedText.length > 50) {
+            return cleanedText
+          }
+        }
+      } catch (e) {
+        console.log(`${encoding} 인코딩 실패:`, e)
       }
-    } catch (utf8Error) {
-      console.log('UTF-8 인코딩 실패:', utf8Error)
     }
 
-    // 방법 2: 바이너리에서 직접 한글 패턴 찾기 (더 정교한 방법)
+    // 방법 2: 바이너리에서 직접 한글 패턴 찾기 (EUC-KR/CP949)
     try {
       const koreanBytes = []
       for (let i = 0; i < buffer.length - 1; i++) {
@@ -364,31 +381,77 @@ function extractTextFromHwpBinary(buffer: Buffer): string {
         if (byte1 >= 0xb0 && byte1 <= 0xc8 && byte2 >= 0xa1 && byte2 <= 0xfe) {
           koreanBytes.push(byte1, byte2)
         }
+        // 추가 한글 범위
+        else if (byte1 >= 0xc9 && byte1 <= 0xd3 && byte2 >= 0xa1 && byte2 <= 0xfe) {
+          koreanBytes.push(byte1, byte2)
+        }
       }
 
       if (koreanBytes.length > 0) {
-        // EUC-KR 대신 UTF-8로 시도
+        // EUC-KR을 UTF-8로 변환 시도
         const koreanBuffer = Buffer.from(koreanBytes)
         const koreanText = koreanBuffer.toString('utf-8')
         console.log('바이너리 직접 파싱으로 한글 텍스트 추출 성공:', koreanText.length)
-        return koreanText
+
+        const cleanedText = cleanExtractedText(koreanText)
+        if (cleanedText.length > 50) {
+          return cleanedText
+        }
       }
     } catch (binaryError) {
       console.log('바이너리 직접 파싱 실패:', binaryError)
     }
 
-    // 방법 3: 전체 버퍼에서 한글 패턴 찾기
+    // 방법 3: 전체 버퍼에서 한글 패턴 찾기 (더 큰 범위)
     try {
-      const bufferString = buffer.toString('utf-8', 0, Math.min(buffer.length, 50000))
+      const bufferString = buffer.toString('utf-8', 0, Math.min(buffer.length, 100000))
       const koreanPattern = /[가-힣]+/g
       const matches = bufferString.match(koreanPattern)
 
       if (matches && matches.length > 0) {
         console.log('전체 버퍼에서 한글 텍스트 추출 성공:', matches.length, '개')
-        return matches.join(' ')
+        const result = matches.join(' ')
+        const cleanedText = cleanExtractedText(result)
+        if (cleanedText.length > 50) {
+          return cleanedText
+        }
       }
     } catch (bufferError) {
       console.log('전체 버퍼 파싱 실패:', bufferError)
+    }
+
+    // 방법 4: 바이너리에서 텍스트 블록 찾기
+    try {
+      const textBlocks = []
+      let currentBlock = ''
+
+      for (let i = 0; i < buffer.length; i++) {
+        const byte = buffer[i]
+
+        // 텍스트 가능한 바이트 범위
+        if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+          currentBlock += String.fromCharCode(byte)
+        } else {
+          if (currentBlock.length > 10) {
+            // 한글이 포함된 블록만 저장
+            if (/[가-힣]/.test(currentBlock)) {
+              textBlocks.push(currentBlock)
+            }
+          }
+          currentBlock = ''
+        }
+      }
+
+      if (textBlocks.length > 0) {
+        const result = textBlocks.join(' ')
+        const cleanedText = cleanExtractedText(result)
+        if (cleanedText.length > 50) {
+          console.log('텍스트 블록 추출 성공:', textBlocks.length, '개 블록')
+          return cleanedText
+        }
+      }
+    } catch (blockError) {
+      console.log('텍스트 블록 추출 실패:', blockError)
     }
 
     console.log('모든 인코딩 방법 실패')
@@ -397,4 +460,20 @@ function extractTextFromHwpBinary(buffer: Buffer): string {
     console.log('바이너리 텍스트 추출 중 오류:', error)
     return ''
   }
+}
+
+// 추출된 텍스트 정리 함수
+function cleanExtractedText(text: string): string {
+  return (
+    text
+      // 바이너리 패턴 제거
+      .replace(/[A-Za-z0-9]{20,}/g, ' ') // 20자 이상의 연속된 영숫자 제거
+      .replace(/[0-9A-Fa-f]{8,}/g, ' ') // 8자 이상의 16진수 패턴 제거
+      .replace(/[A-Za-z]{3,}\s+[A-Za-z]{3,}/g, ' ') // 연속된 영문 단어 제거
+      .replace(/[A-Za-z0-9]{5,}[^가-힣\s]{5,}/g, ' ') // 한글이 아닌 연속된 문자 제거
+      // 특수문자 정리
+      .replace(/[^\w\s가-힣.,!?;:()[\]{}"'\-]/g, ' ')
+      .replace(/\s+/g, ' ') // 연속된 공백을 하나로
+      .trim()
+  )
 }

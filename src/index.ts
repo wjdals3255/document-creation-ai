@@ -361,7 +361,24 @@ async function convertHwpToText(filePath: string, originalName: string): Promise
       console.log('한글 인코딩 개선 파싱 실패:', encodingError.message)
     }
 
-    // 3. LibreOffice 설치 확인 (백업)
+    // 3. 더 강력한 바이너리 파싱 시도
+    console.log('더 강력한 바이너리 파싱 시도...')
+    try {
+      const fileBuffer = fs.readFileSync(filePath)
+      const { extractTextFromHwpBinary } = require('./extractHwpText')
+      const binaryText = extractTextFromHwpBinary(fileBuffer)
+      if (binaryText && binaryText.trim() && binaryText.length > 50) {
+        console.log('강력한 바이너리 파싱 성공, 길이:', binaryText.length)
+        console.log('강력한 바이너리 파싱 결과 샘플:', binaryText.substring(0, 100))
+        return binaryText
+      } else {
+        console.log('강력한 바이너리 파싱 결과가 너무 짧거나 비어있음')
+      }
+    } catch (binaryError: any) {
+      console.log('강력한 바이너리 파싱 실패:', binaryError.message)
+    }
+
+    // 4. LibreOffice 설치 확인 (백업)
     console.log('LibreOffice 설치 확인 시작...')
     const { exec } = require('child_process')
 
