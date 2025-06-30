@@ -90,6 +90,8 @@ app.post('/extract-hwp-text-enhanced', upload.single('data'), async (req: any, r
       const { exec } = require('child_process')
       await new Promise((resolve, reject) => {
         exec(cmd, (error: any, stdout: any, stderr: any) => {
+          console.log('LibreOffice stdout:', stdout)
+          console.log('LibreOffice stderr:', stderr)
           if (error) return reject(error)
           if (!fs.existsSync(pdfPath)) return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
           resolve(true)
@@ -104,9 +106,10 @@ app.post('/extract-hwp-text-enhanced', upload.single('data'), async (req: any, r
           console.error('PDF 다운로드 중 오류:', err)
         }
       })
-    } catch (err: any) {
+    } catch (err) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-      return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: err.message })
+      // 에러 메시지에 변환 명령어, 파일명, 에러 내용을 포함
+      return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: (err as any).message, file: req.file.originalname })
     }
   } else {
     // 나머지 파일은 원본 그대로 전송
@@ -705,7 +708,7 @@ app.post('/extract-hwp-text-from-url', async (req: any, res: any) => {
             const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export "${filePath}" --outdir "uploads" 2>&1`
             console.log(`실행 명령어: ${cmd}`)
 
-            exec(cmd, (error, stdout, stderr) => {
+            exec(cmd, (error: any, stdout: any, stderr: any) => {
               console.log(`LibreOffice stdout: ${stdout}`)
               console.log(`LibreOffice stderr: ${stderr}`)
 
@@ -1003,8 +1006,11 @@ app.post('/convert-and-serve', upload.single('data'), async (req: any, res: any)
       // LibreOffice 변환 명령어
       const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
       const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "${uploadsDir}" "${filePath}"`
+      const { exec } = require('child_process')
       await new Promise((resolve, reject) => {
-        exec(cmd, (error, stdout, stderr) => {
+        exec(cmd, (error: any, stdout: any, stderr: any) => {
+          console.log('LibreOffice stdout:', stdout)
+          console.log('LibreOffice stderr:', stderr)
           if (error) return reject(error)
           if (!fs.existsSync(pdfPath)) return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
           resolve(true)
@@ -1019,9 +1025,10 @@ app.post('/convert-and-serve', upload.single('data'), async (req: any, res: any)
           console.error('PDF 다운로드 중 오류:', err)
         }
       })
-    } catch (err: any) {
+    } catch (err) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-      return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: err.message })
+      // 에러 메시지에 변환 명령어, 파일명, 에러 내용을 포함
+      return res.status(500).json({ error: 'HWP → PDF 변환 실패', detail: (err as any).message, file: req.file.originalname })
     }
   } else {
     // 나머지 파일은 원본 그대로 전송
