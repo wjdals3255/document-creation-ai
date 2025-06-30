@@ -77,11 +77,11 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
   console.log('==== /extract-hwp-text-enhanced 호출됨 ====')
   console.log('req.files:', req.files)
   console.log('req.body:', req.body)
-
+  
   // 요청 타임아웃 설정
   req.setTimeout(300000) // 5분
   res.setTimeout(300000) // 5분
-
+  
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
@@ -92,40 +92,40 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
         try {
           let text = ''
 
-          // HWP 파일인 경우 DOCX 변환 후 처리
+          // HWP 파일인 경우 한컴 API 우선 시도
           if (file.originalname.toLowerCase().endsWith('.hwp')) {
-            console.log('HWP 파일 감지, DOCX 변환 시도...')
-            text = await convertHwpToText(file.path, file.originalname)
+            console.log('HWP 파일 감지, 한컴 API 우선 시도...')
+            
+            try {
+              const fileBuffer = fs.readFileSync(file.path)
+              // 한컴 API를 통한 HWP → PDF → 텍스트 추출 시도
+              text = await convertHwpToTextViaHancomPdf(fileBuffer, file.originalname)
+              console.log('한컴 API 성공!')
+            } catch (hancomError: any) {
+              console.log('한컴 API 실패, LibreOffice 변환 시도...')
+              
+              // 한컴 API 실패 시 LibreOffice 변환 시도
+              try {
+                text = await convertHwpToText(file.path, file.originalname)
+                console.log('LibreOffice 변환 성공!')
+              } catch (libreOfficeError: any) {
+                console.log('LibreOffice 변환도 실패, 한컴 TXT API 시도...')
+                
+                // LibreOffice도 실패 시 한컴 TXT API 시도
+                try {
+                  const fileBuffer = fs.readFileSync(file.path)
+                  const accessToken = await getHancomAccessToken()
+                  text = await hancomHwpToText(fileBuffer, file.originalname, accessToken)
+                  console.log('한컴 TXT API 성공!')
+                } catch (hancomTxtError: any) {
+                  console.log('모든 변환 방법 실패, 안내 메시지 반환')
+                  text = getHwpErrorMessage(file.originalname)
+                }
+              }
+            }
           } else {
             // 다른 파일들은 기존 방식으로 처리
             text = await extractHwpText(file.path)
-          }
-
-          // HWP 파일이고 텍스트가 비어있거나 실패 메시지인 경우 한컴 API 시도
-          if (
-            file.originalname.toLowerCase().endsWith('.hwp') &&
-            (!text || text.includes('실패') || text.includes('한컴 API') || text.length < 10)
-          ) {
-            console.log('한컴 API 시도 중...')
-            try {
-              const fileBuffer = fs.readFileSync(file.path)
-              const base64Data = fileBuffer.toString('base64')
-
-              // 한컴 OAuth2 토큰 발급
-              const accessToken = await getHancomAccessToken()
-
-              // 한컴 API로 HWP → TXT 변환
-              const hancomResult = await hancomHwpToText(fileBuffer, file.originalname, accessToken)
-
-              if (hancomResult && hancomResult.trim()) {
-                console.log('한컴 API 성공!')
-                text = hancomResult
-              } else {
-                console.log('한컴 API도 실패')
-              }
-            } catch (hancomError: any) {
-              console.log('한컴 API 에러:', hancomError.message)
-            }
           }
 
           return { filename: file.originalname, text }
@@ -135,7 +135,7 @@ app.post('/extract-hwp-text-enhanced', upload.array('data'), async (req: any, re
         }
       })
     )
-
+    
     // 응답 전송
     res.json({ results })
   } catch (err: any) {
@@ -544,6 +544,55 @@ async function hancomHwpToText(fileBuffer: Buffer, filename: string, accessToken
   return res.data // 변환된 텍스트
 }
 
+// Hancom HWP → PDF 변환 함수 (한컴 통합문서뷰어 API)
+async function hancomHwpToPdf(fileBuffer: Buffer, filename: string, accessToken: string) {
+  try {
+    // 한컴 통합문서뷰어 API: HWP → PDF 변환
+    const apiUrl = 'https://api.hancomdocs.com/v1.0/convert/pdf'
+    const res = await axios.post(apiUrl, fileBuffer, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/octet-stream',
+        Accept: 'application/pdf'
+      },
+      params: { fileName: filename },
+      responseType: 'arraybuffer' // PDF 바이너리 데이터 받기
+    })
+    
+    console.log('한컴 API HWP → PDF 변환 성공')
+    return res.data // PDF 바이너리 데이터
+  } catch (error: any) {
+    console.error('한컴 API HWP → PDF 변환 실패:', error.response?.data || error.message)
+    throw error
+  }
+}
+
+// 한컴 API를 통한 HWP → PDF → 텍스트 추출 파이프라인
+async function convertHwpToTextViaHancomPdf(fileBuffer: Buffer, filename: string): Promise<string> {
+  try {
+    console.log('한컴 API를 통한 HWP → PDF → 텍스트 변환 시작...')
+    
+    // 1. 한컴 OAuth2 토큰 발급
+    const accessToken = await getHancomAccessToken()
+    console.log('한컴 토큰 발급 성공')
+    
+    // 2. HWP → PDF 변환
+    const pdfBuffer = await hancomHwpToPdf(fileBuffer, filename, accessToken)
+    console.log('HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
+    
+    // 3. PDF → 텍스트 추출
+    const pdfText = await pdfParse(pdfBuffer)
+    const extractedText = pdfText.text.trim()
+    
+    console.log('PDF → 텍스트 추출 완료, 텍스트 길이:', extractedText.length)
+    return extractedText
+    
+  } catch (error: any) {
+    console.error('한컴 API 파이프라인 실패:', error.message)
+    throw error
+  }
+}
+
 // base64 업로드용 HWP 텍스트 추출 API (한컴 API 연동)
 app.post('/extract-hwp-text-base64', async (req: any, res: any) => {
   try {
@@ -866,6 +915,107 @@ async function processDocxFile(docxPath: string, res: any, originalFilePath: str
 
 app.use(hwpxRoutes)
 
+// 한컴 API를 활용한 HWP → PDF → 텍스트 추출 API (새로운 방식)
+app.post('/extract-hwp-via-hancom-pdf', upload.single('data'), async (req: any, res: any) => {
+  console.log('==== /extract-hwp-via-hancom-pdf 호출됨 ====')
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+
+    const fileBuffer = fs.readFileSync(req.file.path)
+    const filename = req.file.originalname
+
+    console.log(`HWP 파일 처리 시작: ${filename}, 크기: ${fileBuffer.length} bytes`)
+
+    // 한컴 API를 통한 HWP → PDF → 텍스트 추출
+    const extractedText = await convertHwpToTextViaHancomPdf(fileBuffer, filename)
+
+    // 임시 파일 정리
+    fs.unlinkSync(req.file.path)
+
+    res.json({
+      success: true,
+      filename: filename,
+      text: extractedText,
+      method: '한컴 API HWP → PDF → 텍스트',
+      textLength: extractedText.length
+    })
+
+  } catch (error: any) {
+    console.error('한컴 API 파이프라인 실패:', error)
+    
+    // 임시 파일 정리
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path)
+    }
+
+    res.status(500).json({
+      error: '한컴 API를 통한 HWP 변환 실패',
+      detail: error.message,
+      suggestion: '다른 변환 방법을 시도해보세요: /extract-hwp-text-enhanced'
+    })
+  }
+})
+
+// 한컴 API를 활용한 HWP → PDF 변환 API (PDF 다운로드)
+app.post('/convert-hwp-to-pdf-hancom', upload.single('data'), async (req: any, res: any) => {
+  console.log('==== /convert-hwp-to-pdf-hancom 호출됨 ====')
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+
+    const fileBuffer = fs.readFileSync(req.file.path)
+    const filename = req.file.originalname
+
+    console.log(`HWP → PDF 변환 시작: ${filename}`)
+
+    // 1. 한컴 OAuth2 토큰 발급
+    const accessToken = await getHancomAccessToken()
+    
+    // 2. HWP → PDF 변환
+    const pdfBuffer = await hancomHwpToPdf(fileBuffer, filename, accessToken)
+    
+    // 3. PDF 파일로 저장
+    const pdfFilename = filename.replace(/\.hwp$/i, '.pdf')
+    const pdfPath = path.join('uploads', `hancom_${Date.now()}_${pdfFilename}`)
+    fs.writeFileSync(pdfPath, pdfBuffer)
+
+    console.log(`PDF 변환 완료: ${pdfPath}`)
+
+    // 4. PDF 파일 다운로드
+    res.download(pdfPath, pdfFilename, (err) => {
+      // 다운로드 완료 후 임시 파일들 정리
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path)
+      }
+      if (fs.existsSync(pdfPath)) {
+        fs.unlinkSync(pdfPath)
+      }
+      
+      if (err) {
+        console.error('PDF 다운로드 중 오류:', err)
+      }
+    })
+
+  } catch (error: any) {
+    console.error('한컴 API PDF 변환 실패:', error)
+    
+    // 임시 파일 정리
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path)
+    }
+
+    res.status(500).json({
+      error: '한컴 API를 통한 PDF 변환 실패',
+      detail: error.message
+    })
+  }
+})
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
@@ -1002,67 +1152,4 @@ async function convertHwpToDocxWithLibreOffice(hwpPath: string): Promise<string 
             console.log('LibreOffice 변환 성공! 생성된 DOCX 파일:', outputPath)
             resolve(outputPath)
           } else {
-            console.log(`변환된 파일을 찾을 수 없음: ${outputPath}`)
-            commandIndex++
-            tryNextCommand()
-          }
-        }
-      )
-    }
-
-    tryNextCommand()
-  })
-}
-
-// LibreOffice 설치 확인 함수 (강화된 버전)
-async function checkLibreOfficeInstallation(): Promise<boolean> {
-  return new Promise((resolve) => {
-    // 여러 가능한 LibreOffice 경로 확인
-    const possiblePaths = [
-      'which soffice',
-      'which libreoffice',
-      'ls /usr/bin/soffice',
-      'ls /usr/bin/libreoffice',
-      'ls /usr/local/bin/soffice',
-      'ls /usr/local/bin/libreoffice',
-      'ls /opt/libreoffice*/program/soffice',
-      'ls /opt/libreoffice*/program/libreoffice'
-    ]
-
-    let checkIndex = 0
-
-    function checkNextPath() {
-      if (checkIndex >= possiblePaths.length) {
-        console.log('LibreOffice를 찾을 수 없음 - 모든 경로 확인 완료')
-        resolve(false)
-        return
-      }
-
-      const cmd = possiblePaths[checkIndex]
-      console.log(`LibreOffice 확인 시도 ${checkIndex + 1}: ${cmd}`)
-
-      exec(cmd, (error, stdout, stderr) => {
-        if (!error && stdout && stdout.trim()) {
-          console.log(`LibreOffice 발견: ${stdout.trim()}`)
-          resolve(true)
-          return
-        }
-
-        checkIndex++
-        checkNextPath()
-      })
-    }
-
-    checkNextPath()
-  })
-}
-
-// 전역 예외 핸들러 추가 (서버에서 모든 에러를 로그로 남김)
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err)
-})
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection:', reason)
-})
-
-export default app
+            console.log(`
