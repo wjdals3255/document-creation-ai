@@ -493,23 +493,28 @@ async function getHancomAccessToken() {
   return res.data.access_token
 }
 
-// 한컴 HWP → PDF 변환 함수
+// 한컴 HWP → PDF 변환 함수 (에러 처리 개선)
 async function hancomHwpToPdf(filePath: string, accessToken: string): Promise<Buffer> {
   const fs = require('fs')
   const fileBuffer = fs.readFileSync(filePath)
-  const res = await axios.post('https://api.hancomdocs.com/v1.0/convert/pdf', fileBuffer, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/octet-stream',
-      Accept: 'application/pdf'
-    },
-    params: { fileName: filePath.split('/').pop() },
-    responseType: 'arraybuffer'
-  })
-  return Buffer.from(res.data)
+  try {
+    const res = await axios.post('https://api.hancomdocs.com/v1.0/convert/pdf', fileBuffer, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/octet-stream',
+        Accept: 'application/pdf'
+      },
+      params: { fileName: filePath.split('/').pop() },
+      responseType: 'arraybuffer'
+    })
+    return Buffer.from(res.data)
+  } catch (error: any) {
+    console.error('한컴 API 변환 실패:', error.response?.status, error.response?.data)
+    throw new Error(`한컴 API 변환 실패: ${error.response?.status || error.message}`)
+  }
 }
 
-// 한컴 API를 통한 HWP → PDF → 텍스트 추출 파이프라인
+// 한컴 API를 통한 HWP → PDF → 텍스트 추출 파이프라인 (LibreOffice fallback 추가)
 async function convertHwpToTextViaHancomPdf(fileBuffer: Buffer, filename: string): Promise<string> {
   try {
     console.log('한컴 API를 통한 HWP → PDF → 텍스트 변환 시작...')
@@ -518,16 +523,64 @@ async function convertHwpToTextViaHancomPdf(fileBuffer: Buffer, filename: string
     const accessToken = await getHancomAccessToken()
     console.log('한컴 토큰 발급 성공')
 
-    // 2. HWP → PDF 변환
-    const pdfBuffer = await hancomHwpToPdf(filename, accessToken)
-    console.log('HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
+    // 2. HWP → PDF 변환 (한컴 API 시도)
+    try {
+      const pdfBuffer = await hancomHwpToPdf(filename, accessToken)
+      console.log('한컴 API HWP → PDF 변환 완료, PDF 크기:', pdfBuffer.length)
 
-    // 3. PDF → 텍스트 추출
-    const pdfText = await pdfParse(pdfBuffer)
-    const extractedText = pdfText.text.trim()
+      // 3. PDF → 텍스트 추출
+      const pdfText = await pdfParse(pdfBuffer)
+      const extractedText = pdfText.text.trim()
 
-    console.log('PDF → 텍스트 추출 완료, 텍스트 길이:', extractedText.length)
-    return extractedText
+      console.log('PDF → 텍스트 추출 완료, 텍스트 길이:', extractedText.length)
+      return extractedText
+    } catch (hancomError: any) {
+      console.error('한컴 API 변환 실패, LibreOffice fallback 시도:', hancomError.message)
+
+      // 한컴 API 실패 시 LibreOffice 변환으로 fallback
+      const fs = require('fs')
+      const tempFilePath = `uploads/temp_${Date.now()}.hwp`
+      fs.writeFileSync(tempFilePath, fileBuffer)
+
+      try {
+        const { exec } = require('child_process')
+        const pdfPath = tempFilePath.replace(/\.hwp$/, '.pdf')
+        const cmd = `soffice --headless --convert-to pdf:writer_pdf_Export --outdir "uploads" "${tempFilePath}"`
+
+        await new Promise((resolve, reject) => {
+          exec(cmd, (error: any, stdout: any, stderr: any) => {
+            if (error) {
+              console.error('LibreOffice 변환 실패:', error)
+              return reject(error)
+            }
+            if (!fs.existsSync(pdfPath)) {
+              return reject(new Error('PDF 파일이 생성되지 않았습니다.'))
+            }
+            resolve(true)
+          })
+        })
+
+        const pdfBuffer = fs.readFileSync(pdfPath)
+        const pdfText = await pdfParse(pdfBuffer)
+        const extractedText = pdfText.text.trim()
+
+        // 임시 파일 정리
+        fs.unlinkSync(tempFilePath)
+        fs.unlinkSync(pdfPath)
+
+        console.log('LibreOffice fallback 성공, 텍스트 길이:', extractedText.length)
+        return extractedText
+      } catch (libreOfficeError: any) {
+        console.error('LibreOffice fallback도 실패:', libreOfficeError.message)
+
+        // 임시 파일 정리
+        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath)
+        const pdfPath = tempFilePath.replace(/\.hwp$/, '.pdf')
+        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+
+        throw new Error(`모든 변환 방법 실패: 한컴API(${hancomError.message}), LibreOffice(${libreOfficeError.message})`)
+      }
+    }
   } catch (error: any) {
     console.error('한컴 API 파이프라인 실패:', error.message)
     throw error
