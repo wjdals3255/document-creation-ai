@@ -1451,6 +1451,7 @@ app.post('/print-hwp-to-pdf', upload.single('data'), async (req: any, res: any) 
 
 // CloudConvert 기반 HWP→PDF 자동 변환 엔드포인트 ㅁㅈㅇ
 app.post('/convert-hwp-to-pdf-cloudconvert', upload.single('data'), async (req: any, res: any) => {
+  console.log('==== /convert-hwp-to-pdf-cloudconvert 라우트 진입 ====', new Date().toISOString())
   try {
     if (!req.file) {
       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
