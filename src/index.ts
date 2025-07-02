@@ -492,18 +492,17 @@ async function processDocxFileForHwp(docxPath: string, originalFilePath: string)
     const text = result.value.trim()
 
     // 임시 파일들 정리
-    try {
-      fs.unlinkSync(docxPath)
-    } catch (e) {
-      console.log('DOCX 파일 삭제 실패:', e)
-    }
+    fs.unlinkSync(docxPath)
+    fs.unlinkSync(originalFilePath)
 
-    console.log('HWP → DOCX → 텍스트 변환 성공, 길이:', text.length)
-    return text
+    res.json({
+      success: true,
+      text: text,
+      message: 'HWP → DOCX → 텍스트 변환 성공'
+    })
   } catch (docxError: any) {
     console.log('DOCX 처리 실패:', docxError.message)
-    // DOCX 처리 실패 시 기존 방식으로 fallback
-    return extractHwpText(originalFilePath)
+    res.status(500).json({ error: 'DOCX 파일 처리에 실패했습니다.', detail: docxError.message })
   }
 }
 
@@ -1159,6 +1158,16 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`)
     console.log(`🔗 Health check: http://localhost:${PORT}/health`)
     console.log(`📄 HWP Extract: http://localhost:${PORT}/extract-hwp-text`)
+    // 등록된 라우트 목록 출력
+    if (app._router && app._router.stack) {
+      console.log('==== 등록된 라우트 목록 ====')
+      app._router.stack.forEach((r: any) => {
+        if (r.route && r.route.path) {
+          console.log(r.route.stack[0].method.toUpperCase(), r.route.path)
+        }
+      })
+      console.log('========================')
+    }
   })
 
   // 서버 타임아웃 설정
