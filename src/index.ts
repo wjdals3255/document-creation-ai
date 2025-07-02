@@ -495,14 +495,10 @@ async function processDocxFileForHwp(docxPath: string, originalFilePath: string)
     fs.unlinkSync(docxPath)
     fs.unlinkSync(originalFilePath)
 
-    res.json({
-      success: true,
-      text: text,
-      message: 'HWP → DOCX → 텍스트 변환 성공'
-    })
+    return text
   } catch (docxError: any) {
     console.log('DOCX 처리 실패:', docxError.message)
-    res.status(500).json({ error: 'DOCX 파일 처리에 실패했습니다.', detail: docxError.message })
+    throw new Error('DOCX 파일 처리에 실패했습니다: ' + docxError.message)
   }
 }
 
