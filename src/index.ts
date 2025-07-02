@@ -16,6 +16,7 @@ import mammoth from 'mammoth'
 import XLSX from 'xlsx'
 import { exec } from 'child_process'
 import hwpxRoutes from './routes/hwpxRoutes'
+import CloudConvert from 'cloudconvert'
 
 // Load environment variables
 dotenv.config()
@@ -1241,7 +1242,7 @@ async function convertHwpToDocxWithLibreOffice(hwpPath: string): Promise<string 
           console.log('stderr:', stderr)
 
           if (error) {
-            console.log(`LibreOffice 변환 실패 ${commandIndex + 1}:`, error.message)
+            console.log(`LibreOffice 변환 실패 ${commandIndex + 1}:`, error)
             commandIndex++
             tryNextCommand()
             return
@@ -1428,5 +1429,72 @@ app.post('/print-hwp-to-pdf', upload.single('data'), async (req: any, res: any) 
       fs.unlinkSync(req.file.path)
     }
     res.status(500).json({ error: 'MS Word 프린트(PDF) 변환 실패', detail: error.message })
+  }
+})
+
+// CloudConvert 기반 HWP→PDF 자동 변환 엔드포인트
+app.post('/convert-hwp-to-pdf-cloudconvert', upload.single('data'), async (req: any, res: any) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+    const ext = path.extname(req.file.originalname).toLowerCase()
+    if (ext !== '.hwp') {
+      return res.status(400).json({ error: 'HWP 파일만 변환할 수 있습니다.' })
+    }
+    const apiKey =
+      process.env.CLOUDCONVERT_API_KEY ||
+      'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiZDFkNDI5NDlhNDg1YmE4MDEzNjgzYTJiOWNiNTQ3ODI2MjA4OTA4MmI3ZDhiZDNkYTQ2MWIwOWE0OTA5MDM0ZjI0MjY4YWU5MWVhYzA5ZTQiLCJpYXQiOjE3NTE0Mjg2MjUuOTQ3NzEyLCJuYmYiOjE3NTE0Mjg2MjUuOTQ3NzEzLCJleHAiOjQ5MDcxMDIyMjUuOTQyNTY4LCJzdWIiOiI3MjM0MTQ5OCIsInNjb3BlcyI6W119.SbkQjqRWVsmq3H4xNq6CAV0_NIYjyOF6wan3GAs5ZbXgrBe5tVXsV-PpKuY0XG5Op-yq2H13vbzIebHCoWwQxZGSxQZwGskZ71BBF3riA2v4Wy2J0JkAFgWdQXW1DDx2vMngJ7hVLokXbURqHGhopBBEcPedTINPtX8CBtjcd6YZmOMrsM-RSk_e9cbG3MZEtb4aloRSxqDA06G_ST5w99yfAAcnmaiTz1q7N37EvzeYuUzIYoKUhSUETe9RaNM1-71-5wpLRIrbcMHX2zye9lPQTquDxsyEhjjnPciOyP6ZV0xWPyMgqJ8a6bGDax924orWQlaNjedLw77cCJur3h4wW8jWYOvZPQbIzTeG8YMpUYG15sYgqVRrRVimvdzyq2_aYLM2vLBzjy34rsKGvnAJapIipDevwkbgIy-Idf_I2wcVq1vGqL3BL7UW-24Av6N-wAmCp41XK0eCuEo2zskeTObyAweOdcIfOfNZNWPaemC-hTfOit4RPqAVFrtP1Zyag_BJMkbFKJlfzwDtp6Gxdc0k_jmqTt2bx2wpPF2BCKOw1PJWqU3IzViUhPI1Vec9Y9nXCqDJmUnZz2v4dPheT294OmpepdqJfSczW5c4Sg_dK633F8Wtbs9uyEmKugE9q3qkHnbJHrweS7Ep3xG8TdUW-32WBYXGJB0g9NY'
+    const cloudConvert = new CloudConvert(apiKey)
+    const fs = require('fs')
+
+    // 1. Job 생성
+    const job = await cloudConvert.jobs.create({
+      tasks: {
+        'import-my-file': {
+          operation: 'import/upload'
+        },
+        'convert-my-file': {
+          operation: 'convert',
+          input: 'import-my-file',
+          input_format: 'hwp',
+          output_format: 'pdf'
+        },
+        'export-my-file': {
+          operation: 'export/url',
+          input: 'convert-my-file'
+        }
+      }
+    })
+
+    // 2. 파일 업로드
+    const uploadTask = job.tasks.filter((task: any) => task.name === 'import-my-file')[0]
+    await cloudConvert.tasks.upload(uploadTask, fs.createReadStream(req.file.path))
+
+    // 3. 변환 완료 대기
+    const completedJob = await cloudConvert.jobs.wait(job.id)
+
+    // 4. 결과 다운로드
+    const exportTask = completedJob.tasks.filter((task: any) => task.operation === 'export/url')[0]
+    const file = exportTask.result.files[0]
+    const response = await fetch(file.url)
+    const buffer = await response.arrayBuffer()
+    const pdfPath = req.file.path.replace(/\.hwp$/, '.pdf')
+    fs.writeFileSync(pdfPath, Buffer.from(buffer))
+
+    // PDF 파일 다운로드
+    res.download(pdfPath, req.file.originalname.replace(/\.hwp$/i, '.pdf'), (err: any) => {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
+      if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+      if (err) {
+        console.error('PDF 다운로드 중 오류:', err)
+      }
+    })
+  } catch (error: any) {
+    console.error('CloudConvert 변환 실패:', error)
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path)
+    }
+    res.status(500).json({ error: 'CloudConvert 변환 실패', detail: error.message })
   }
 })
