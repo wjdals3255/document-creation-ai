@@ -1393,3 +1393,40 @@ async function convertHwpToTextViaMsWordMac(fileBuffer: Buffer, filename: string
 function isMacOS(): boolean {
   return process.platform === 'darwin'
 }
+
+// Mac 환경에서 MS Word를 이용한 HWP → PDF 프린트 자동화 엔드포인트
+app.post('/print-hwp-to-pdf', upload.single('data'), async (req: any, res: any) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+    const ext = path.extname(req.file.originalname).toLowerCase()
+    if (ext !== '.hwp') {
+      return res.status(400).json({ error: 'HWP 파일만 변환할 수 있습니다.' })
+    }
+    const filePath = req.file.path
+    // Mac 환경에서만 동작
+    if (!isMacOS()) {
+      return res.status(400).json({ error: '이 엔드포인트는 Mac 환경에서만 동작합니다.' })
+    }
+    // MS Word로 HWP → PDF 변환
+    const pdfBuffer = await msWordHwpToPdfMac(filePath)
+    const pdfFilename = req.file.originalname.replace(/\.hwp$/i, '.pdf')
+    const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+    fs.writeFileSync(pdfPath, pdfBuffer)
+    // PDF 파일 다운로드
+    res.download(pdfPath, pdfFilename, (err: any) => {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+      if (err) {
+        console.error('PDF 다운로드 중 오류:', err)
+      }
+    })
+  } catch (error: any) {
+    console.error('MS Word 프린트(PDF) 변환 실패:', error)
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path)
+    }
+    res.status(500).json({ error: 'MS Word 프린트(PDF) 변환 실패', detail: error.message })
+  }
+})
