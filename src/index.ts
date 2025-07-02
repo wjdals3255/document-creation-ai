@@ -1476,7 +1476,16 @@ app.post('/convert-hwp-to-pdf-cloudconvert', upload.single('data'), async (req: 
 
     // 4. 결과 다운로드
     const exportTask = completedJob.tasks.filter((task: any) => task.operation === 'export/url')[0]
+
+    if (!exportTask.result || !exportTask.result.files || !exportTask.result.files[0]) {
+      throw new Error('CloudConvert 변환 결과를 찾을 수 없습니다.')
+    }
+
     const file = exportTask.result.files[0]
+    if (!file.url) {
+      throw new Error('변환된 파일의 URL을 찾을 수 없습니다.')
+    }
+
     const response = await fetch(file.url)
     const buffer = await response.arrayBuffer()
     const pdfPath = req.file.path.replace(/\.hwp$/, '.pdf')
