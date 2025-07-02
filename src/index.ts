@@ -38,6 +38,23 @@ if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads')
 }
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'Document Creation AI Server is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    endpoints: {
+      health: '/health',
+      extractHwpText: '/extract-hwp-text',
+      extractHwpTextEnhanced: '/extract-hwp-text-enhanced',
+      convertHwpToPdfCloudConvert: '/convert-hwp-to-pdf-cloudconvert',
+      printHwpToPdf: '/print-hwp-to-pdf'
+    }
+  })
+})
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
