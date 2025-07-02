@@ -17,6 +17,7 @@ import XLSX from 'xlsx'
 import { exec } from 'child_process'
 import hwpxRoutes from './routes/hwpxRoutes'
 import CloudConvert from 'cloudconvert'
+import iconv from 'iconv-lite'
 
 // Load environment variables
 dotenv.config()
@@ -1528,5 +1529,29 @@ app.post('/convert-hwp-to-pdf-cloudconvert', upload.single('data'), async (req: 
       fs.unlinkSync(req.file.path)
     }
     res.status(500).json({ error: 'CloudConvert 변환 실패', detail: error.message })
+  }
+})
+
+// HWP 파일에서 한글 텍스트만 추출하는 라우트
+app.post('/extract-hwp-korean-text', upload.single('data'), async (req: any, res: any) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+    }
+    const buffer = fs.readFileSync(req.file.path)
+    // EUC-KR로 디코딩
+    const decoded = iconv.decode(buffer, 'euc-kr')
+    // 한글 덩어리만 추출
+    const matches = decoded.match(/[가-힣]{2,}/g) || []
+    // 중복/공백 정리
+    const unique = Array.from(new Set(matches.map((t) => t.trim()))).filter((t) => t.length > 1)
+    // 임시 파일 삭제
+    fs.unlinkSync(req.file.path)
+    res.json({
+      count: unique.length,
+      texts: unique
+    })
+  } catch (error: any) {
+    res.status(500).json({ error: '텍스트 추출 실패', detail: error.message })
   }
 })
