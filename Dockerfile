@@ -1,14 +1,15 @@
 FROM node:20-slim
 
-# 시스템 패키지 업데이트 및 LibreOffice 설치
+# 시스템 패키지 업데이트 및 LibreOffice, graphicsmagick, ghostscript 설치
 RUN apt-get update && \
     apt-get install -y \
     libreoffice \
     libreoffice-writer \
     libreoffice-calc \
-    libreoffice-impress \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    libreoffice-impress && \
+    apt-get install -y graphicsmagick ghostscript && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
