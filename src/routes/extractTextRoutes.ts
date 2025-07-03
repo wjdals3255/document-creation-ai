@@ -30,8 +30,10 @@ router.post('/extract-text', upload.single('file'), async (req: Request, res: Re
         const sheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 })
         text += (sheet as string[][]).map((row: string[]) => row.join('\t')).join('\n') + '\n'
       })
+    } else if (ext === '.txt') {
+      text = fs.readFileSync(filePath, 'utf-8')
     } else {
-      res.status(400).json({ error: '지원하지 않는 파일 형식입니다.' })
+      res.status(400).json({ error: '지원하지 않는 파일 형식입니다. (pdf, xlsx, txt만 지원)' })
       return
     }
     res.json({
