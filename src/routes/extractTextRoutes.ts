@@ -81,6 +81,7 @@ router.post('/pdf-to-images', upload.single('file'), async (req: Request, res: R
       images: imagePaths
     })
   } catch (e) {
+    console.error('PDF → 이미지 변환 실패:', e)
     res.status(500).json({ error: 'PDF → 이미지 변환 실패', detail: e instanceof Error ? e.message : e })
   } finally {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
