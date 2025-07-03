@@ -68,88 +68,84 @@ app.get('/health', (req, res) => {
 })
 
 // HWP 텍스트 추출 API (기존 버전)
-app.post('/extract-hwp-text', upload.single('file'), async (req: any, res: any) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
-    }
-
-    const fileBuffer = fs.readFileSync(req.file.path)
-    const filename = req.file.originalname
-
-    console.log(`HWP 파일 업로드됨: ${filename}, 크기: ${fileBuffer.length} bytes`)
-
-    let extractedText = await convertHwpToTextViaAppropriateMethod(fileBuffer, filename)
-    if (typeof extractedText !== 'string') extractedText = ''
-    const textLength = typeof extractedText === 'string' ? extractedText.length : 0
-    res.json({
-      success: true,
-      filename: filename,
-      text: extractedText,
-      textLength: textLength,
-      method: isMacOS() ? 'MS Word (Mac)' : 'LibreOffice'
-    })
-  } catch (error: any) {
-    let detailMsg = ''
-    try {
-      if (error && error.message) {
-        detailMsg = error.message
-      } else if (typeof error === 'string') {
-        detailMsg = error
-      } else {
-        detailMsg = JSON.stringify(error)
-      }
-    } catch (e) {
-      detailMsg = '알 수 없는 에러'
-    }
-    res.status(500).json({
-      error: 'HWP 텍스트 추출에 실패했습니다.',
-      details: detailMsg
-    })
-  }
-})
+// app.post('/extract-hwp-text', upload.single('file'), async (req: any, res: any) => {
+//   try {
+//     if (!req.file) {
+//       return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+//     }
+//     const fileBuffer = fs.readFileSync(req.file.path)
+//     const filename = req.file.originalname
+//     console.log(`HWP 파일 업로드됨: ${filename}, 크기: ${fileBuffer.length} bytes`)
+//     let extractedText = await convertHwpToTextViaAppropriateMethod(fileBuffer, filename)
+//     if (typeof extractedText !== 'string') extractedText = ''
+//     const textLength = typeof extractedText === 'string' ? extractedText.length : 0
+//     res.json({
+//       success: true,
+//       filename: filename,
+//       text: extractedText,
+//       textLength: textLength,
+//       method: isMacOS() ? 'MS Word (Mac)' : 'LibreOffice'
+//     })
+//   } catch (error: any) {
+//     let detailMsg = ''
+//     try {
+//       if (error && error.message) {
+//         detailMsg = error.message
+//       } else if (typeof error === 'string') {
+//         detailMsg = error
+//       } else {
+//         detailMsg = JSON.stringify(error)
+//       }
+//     } catch (e) {
+//       detailMsg = '알 수 없는 에러'
+//     }
+//     res.status(500).json({
+//       error: 'HWP 텍스트 추출에 실패했습니다.',
+//       details: detailMsg
+//     })
+//   }
+// })
 
 // HWP 텍스트 추출 API (개선된 버전 - HWP는 DOCX 변환 후 처리)
-app.post('/extract-hwp-text-enhanced', upload.single('data'), async (req: any, res: any) => {
-  if (!req.file) {
-    return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
-  }
-  const ext = path.extname(req.file.originalname).toLowerCase()
-  const filePath = req.file.path
-  const uploadsDir = 'uploads'
-
-  if (ext === '.hwp') {
-    try {
-      // 1. 한컴 OAuth2 토큰 발급
-      const accessToken = await getHancomAccessToken()
-      // 2. HWP → PDF 변환
-      const pdfBuffer = await hancomHwpToPdf(filePath, accessToken)
-      // 3. PDF 파일로 저장
-      const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
-      fs.writeFileSync(pdfPath, pdfBuffer)
-      // 4. 원본 HWP 파일 삭제
-      fs.unlinkSync(filePath)
-      // 5. PDF 파일 다운로드
-      res.download(pdfPath, path.basename(pdfPath), (err: any) => {
-        if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
-        if (err) {
-          console.error('[한컴API] PDF 다운로드 중 오류:', err)
-        }
-      })
-    } catch (err: any) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-      return res.status(500).json({ error: 'HWP → PDF 변환 실패(한컴API)', detail: err.message, file: req.file.originalname })
-    }
-  } else {
-    // 나머지 파일은 원본 그대로 전송
-    res.download(filePath, req.file.originalname, (err: any) => {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-      if (err) {
-        console.error('파일 다운로드 중 오류:', err)
-      }
-    })
-  }
-})
+// app.post('/extract-hwp-text-enhanced', upload.single('data'), async (req: any, res: any) => {
+//   if (!req.file) {
+//     return res.status(400).json({ error: '파일이 업로드되지 않았습니다.' })
+//   }
+//   const ext = path.extname(req.file.originalname).toLowerCase()
+//   const filePath = req.file.path
+//   const uploadsDir = 'uploads'
+//   if (ext === '.hwp') {
+//     try {
+//       // 1. 한컴 OAuth2 토큰 발급
+//       const accessToken = await getHancomAccessToken()
+//       // 2. HWP → PDF 변환
+//       const pdfBuffer = await hancomHwpToPdf(filePath, accessToken)
+//       // 3. PDF 파일로 저장
+//       const pdfPath = filePath.replace(/\.hwp$/, '.pdf')
+//       fs.writeFileSync(pdfPath, pdfBuffer)
+//       // 4. 원본 HWP 파일 삭제
+//       fs.unlinkSync(filePath)
+//       // 5. PDF 파일 다운로드
+//       res.download(pdfPath, path.basename(pdfPath), (err: any) => {
+//         if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
+//         if (err) {
+//           console.error('[한컴API] PDF 다운로드 중 오류:', err)
+//         }
+//       })
+//     } catch (err: any) {
+//       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+//       return res.status(500).json({ error: 'HWP → PDF 변환 실패(한컴API)', detail: err.message, file: req.file.originalname })
+//     }
+//   } else {
+//     // 나머지 파일은 원본 그대로 전송
+//     res.download(filePath, req.file.originalname, (err: any) => {
+//       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+//       if (err) {
+//         console.error('파일 다운로드 중 오류:', err)
+//       }
+//     })
+//   }
+// })
 
 // hwp.js 파싱 결과에서 본문 텍스트만 추출하는 함수 (개선된 버전)
 function extractTextFromHwpJson(hwpJson: any): string {
