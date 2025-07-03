@@ -59,7 +59,9 @@ router.post('/pdf-to-images', upload.single('file'), async (req: Request, res: R
   }
   const filePath = req.file.path
   const originalName = req.file.originalname
-  const outputDir = 'uploads/pdf-images-' + Date.now()
+  const ext = path.extname(originalName)
+  const safeBase = Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+  const outputDir = 'uploads/pdf-images-' + safeBase
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true })
   }
@@ -73,13 +75,13 @@ router.post('/pdf-to-images', upload.single('file'), async (req: Request, res: R
       height: 1600
     }
     const convert = fromPath(filePath, options)
-    // -1: 모든 페이지 변환
     const result = await convert.bulk(-1)
-    // 변환된 이미지 파일 경로 리스트 생성
+    // 변환된 이미지 파일 경로 리스트 생성 (실제 저장 파일명만 추출)
     const imagePaths = result.map((r: any) => r.path)
     res.json({
       success: true,
       filename: originalName,
+      safeDir: outputDir,
       imageCount: imagePaths.length,
       images: imagePaths
     })
