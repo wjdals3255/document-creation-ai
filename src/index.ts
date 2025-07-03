@@ -38,6 +38,11 @@ app.get('/', (req, res) => {
 // PDF, XLSX, TXT 텍스트 추출 라우트만 사용
 app.use('/', extractTextRoutes)
 
+// /health 엔드포인트 추가
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`)
