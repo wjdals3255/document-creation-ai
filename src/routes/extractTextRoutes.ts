@@ -60,6 +60,9 @@ router.post('/pdf-to-images', upload.single('file'), async (req: Request, res: R
   const filePath = req.file.path
   const originalName = req.file.originalname
   const outputDir = 'uploads/pdf-images-' + Date.now()
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true })
+  }
   try {
     const options = {
       density: 200,
