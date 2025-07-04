@@ -23,7 +23,26 @@ router.post('/extract-text', upload.single('file'), async (req: Request, res: Re
     if (ext === '.pdf') {
       const buffer = fs.readFileSync(filePath)
       const data = await pdfParse(buffer)
-      text = data.text
+      if (data.text && data.text.trim().length > 10) {
+        // 텍스트 PDF
+        text = data.text
+        res.json({
+          success: true,
+          filename: originalName,
+          text,
+          textLength: text.length,
+          ext
+        })
+      } else {
+        // 이미지 PDF (스캔본)
+        res.json({
+          success: false,
+          filename: originalName,
+          message: '이미지형태 문서입니다. 텍스트 추출 불가',
+          ext
+        })
+      }
+      return
     } else if (ext === '.xlsx') {
       const buffer = fs.readFileSync(filePath)
       const workbook = XLSX.read(buffer, { type: 'buffer' })
