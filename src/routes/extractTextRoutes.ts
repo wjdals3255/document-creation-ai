@@ -78,19 +78,36 @@ router.post('/pdf-to-images', upload.single('file'), async (req: Request, res: R
     const result = await convert.bulk(-1)
     console.log('pdf2pic 변환 결과:', result)
     console.log('outputDir:', outputDir)
+
+    // 실제 파일 시스템에서 생성된 파일 목록 확인
+    let actualFiles: string[] = []
     if (fs.existsSync(outputDir)) {
-      console.log('outputDir 파일 목록:', fs.readdirSync(outputDir))
+      actualFiles = fs.readdirSync(outputDir)
+      console.log('실제 생성된 파일 목록:', actualFiles)
     } else {
       console.log('outputDir이 생성되지 않음')
     }
-    // 변환된 이미지 파일 경로 리스트 생성 (실제 저장 파일명만 추출)
-    const imagePaths = result.map((r: any) => r.path)
+
+    // 실제 파일 시스템의 파일들을 기반으로 이미지 경로 생성
+    const imagePaths = actualFiles
+      .filter((file) => file.toLowerCase().endsWith('.png'))
+      .sort((a, b) => {
+        // page.1.png, page.2.png 순으로 정렬
+        const aNum = parseInt(a.match(/page\.(\d+)\.png/)?.[1] || '0')
+        const bNum = parseInt(b.match(/page\.(\d+)\.png/)?.[1] || '0')
+        return aNum - bNum
+      })
+      .map((file) => `/uploads/pdf-images-${safeBase}/${file}`)
+
+    console.log('반환할 이미지 경로들:', imagePaths)
+
     res.json({
       success: true,
       filename: originalName,
       safeDir: outputDir,
       imageCount: imagePaths.length,
-      images: imagePaths
+      images: imagePaths,
+      actualFiles: actualFiles // 디버깅용
     })
   } catch (e) {
     console.error('PDF → 이미지 변환 실패:', e)
