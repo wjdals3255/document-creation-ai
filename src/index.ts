@@ -22,6 +22,9 @@ if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads')
 }
 
+// 정적 파일 서빙 (이미지 등 다운로드 가능)
+app.use('/uploads', express.static('uploads'))
+
 // 헬스체크 및 서버 상태
 app.get('/', (req, res) => {
   res.status(200).json({
