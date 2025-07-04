@@ -76,6 +76,13 @@ router.post('/pdf-to-images', upload.single('file'), async (req: Request, res: R
     }
     const convert = fromPath(filePath, options)
     const result = await convert.bulk(-1)
+    console.log('pdf2pic 변환 결과:', result)
+    console.log('outputDir:', outputDir)
+    if (fs.existsSync(outputDir)) {
+      console.log('outputDir 파일 목록:', fs.readdirSync(outputDir))
+    } else {
+      console.log('outputDir이 생성되지 않음')
+    }
     // 변환된 이미지 파일 경로 리스트 생성 (실제 저장 파일명만 추출)
     const imagePaths = result.map((r: any) => r.path)
     res.json({
