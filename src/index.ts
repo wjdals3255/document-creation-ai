@@ -19,7 +19,8 @@ app.get('/', (req, res) => {
 // 파일 업로드 엔드포인트
 app.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ success: false, message: '파일이 업로드되지 않았습니다.' })
+    res.status(400).json({ success: false, message: '파일이 업로드되지 않았습니다.' })
+    return
   }
   res.json({
     success: true,
