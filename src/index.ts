@@ -29,28 +29,36 @@ app.get('/', (req, res) => {
 })
 
 // 파일 업로드 및 외부 변환 API 호출
-app.post('/upload', upload.single('file'), async (req, res) => {
+app.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
     res.status(400).json({ success: false, message: '파일이 업로드되지 않았습니다.' })
     return
   }
-  try {
-    const apiRes = await superagent
-      .post('https://convert.code-x.kr/convert')
-      .set('accept', 'application/json')
-      .set('Authorization', 'Bearer b5155cd8099763b94bc1e75ac2bfc57d97cf457b55c48405183fcc9d325953df')
-      .attach('file', fs.createReadStream(req.file.path), {
-        filename: req.file.originalname,
-        contentType: req.file.mimetype
-      })
-    console.log('외부 변환 API 응답:', apiRes.body)
-    res.json({ success: true, message: '파일 업로드 및 변환 요청 완료' })
-  } catch (e: any) {
-    console.error('외부 변환 API 호출 실패:', e)
-    res.status(500).json({ success: false, message: '외부 변환 API 호출 실패', detail: e.message })
-  } finally {
-    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
-  }
+
+  // 1. 클라이언트에 즉시 응답
+  res.json({ success: true, message: '파일 업로드 완료' })
+
+  // 2. 비동기로 외부 API 호출
+  const filePath = req.file.path
+  const originalName = req.file.originalname
+  const mimeType = req.file.mimetype
+  ;(async () => {
+    try {
+      const apiRes = await superagent
+        .post('https://convert.code-x.kr/convert')
+        .set('accept', 'application/json')
+        .set('Authorization', 'Bearer b5155cd8099763b94bc1e75ac2bfc57d97cf457b55c48405183fcc9d325953df')
+        .attach('file', fs.createReadStream(filePath), {
+          filename: originalName,
+          contentType: mimeType
+        })
+      console.log('외부 변환 API 응답:', apiRes.body)
+    } catch (e: any) {
+      console.error('외부 변환 API 호출 실패:', e)
+    } finally {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    }
+  })()
 })
 
 app.listen(PORT, () => {
