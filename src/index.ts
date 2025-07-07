@@ -3,6 +3,7 @@ import multer from 'multer'
 import fs from 'fs'
 import cors from 'cors'
 import superagent from 'superagent'
+import pdfParse from 'pdf-parse'
 
 const app = express()
 const PORT = process.env.PORT || 8080
@@ -69,6 +70,23 @@ app.post('/upload', upload.single('file'), (req, res) => {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
     }
   })()
+})
+
+// PDF 파일에서 텍스트 추출 엔드포인트
+app.post('/extract-text', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ success: false, message: '파일이 업로드되지 않았습니다.' })
+    return
+  }
+  try {
+    const buffer = fs.readFileSync(req.file.path)
+    const data = await pdfParse(buffer)
+    res.json({ success: true, text: data.text })
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: '텍스트 추출 실패', detail: e.message })
+  } finally {
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
+  }
 })
 
 app.listen(PORT, () => {
