@@ -6,7 +6,15 @@ import cors from 'cors'
 const app = express()
 const PORT = process.env.PORT || 3000
 
-app.use(cors())
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false
+  })
+)
+app.options('*', cors())
 
 // uploads 폴더가 없으면 생성
 if (!fs.existsSync('uploads')) {
