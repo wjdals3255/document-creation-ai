@@ -48,20 +48,20 @@ app.post('/upload', upload.single('file'), (req, res) => {
 
   // 고유 document_id 생성 (timestamp 기반)
   const document_id = Date.now()
-  // 한글 파일명 복원 코드 제거, 그대로 저장
-  const document_name = req.file.originalname
-  // 원본 파일의 서버 내 경로를 retry_url로 저장
-  const retry_url = `/uploads/${req.file.filename}`
-  const converted_at = new Date().toISOString()
-
-  res.json({ success: true, message: '파일 업로드 완료', document_id })
-
   // 업로드된 파일명(raw) 및 Buffer 로그 출력
   console.log('originalname(raw):', req.file.originalname)
   console.log('originalname(buffer):', Buffer.from(req.file.originalname))
+  // 한글 파일명 복원 (latin1 → utf8)
+  const document_name = require('iconv-lite').decode(Buffer.from(req.file.originalname, 'latin1'), 'utf8')
+  console.log('originalname(fixed):', document_name)
+  // 원본 파일의 서버 내 경로를 retry_url로 저장
+  const retry_url = `/uploads/${req.file.filename}`
+  const converted_at = new Date().toISOString()
   const filePath = req.file.path
   const originalName = req.file.originalname
   const mimeType = req.file.mimetype
+
+  res.json({ success: true, message: '파일 업로드 완료', document_id })
   ;(async () => {
     let status = 'fail',
       converted_file_url = '',
@@ -106,6 +106,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
           .from('컨버팅 테이블')
           .insert([
             {
+              // document_id는 빼고 저장 (auto increment)
               converted_at,
               document_name,
               status,
