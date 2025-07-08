@@ -5,6 +5,7 @@ import cors from 'cors'
 import superagent from 'superagent'
 import pdfParse from 'pdf-parse'
 import { createClient } from '@supabase/supabase-js'
+import iconv from 'iconv-lite'
 
 const app = express()
 const PORT = process.env.PORT || 8080
@@ -47,8 +48,15 @@ app.post('/upload', upload.single('file'), (req, res) => {
 
   // 고유 document_id 생성 (timestamp 기반)
   const document_id = Date.now()
-  const document_name = req.file.originalname
-  const retry_url = '' // 필요시 원본 파일 URL 등으로 설정
+  // 한글 파일명 복원 (iconv-lite 사용)
+  let document_name = req.file.originalname
+  // 브라우저/환경에 따라 깨질 경우 복원 시도
+  if (/[^\u0000-\u007F]/.test(document_name) === false) {
+    // 한글이 하나도 없으면 복원 시도
+    document_name = iconv.decode(Buffer.from(req.file.originalname, 'binary'), 'utf8')
+  }
+  // 원본 파일의 서버 내 경로를 retry_url로 저장
+  const retry_url = `/uploads/${req.file.filename}`
   const converted_at = new Date().toISOString()
 
   res.json({ success: true, message: '파일 업로드 완료', document_id })
