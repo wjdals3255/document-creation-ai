@@ -96,7 +96,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
       // Supabase에 결과 저장 (성공/실패 모두 기록)
       try {
-        const { data, error } = await supabase.from('컨버팅_테이블').insert([
+        const { data, error } = await supabase.from('컨버팅 테이블').insert([
           {
             // document_id는 빼고 저장 (auto increment)
             converted_at,
