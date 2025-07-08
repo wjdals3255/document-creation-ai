@@ -26,9 +26,12 @@ if (!fs.existsSync('uploads')) {
 
 const upload = multer({ dest: 'uploads/' })
 
-// Supabase 클라이언트 설정 (환경변수 사용)
-const supabaseUrl = process.env.SUPABASE_URL || 'YOUR_SUPABASE_URL'
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || 'YOUR_SUPABASE_SERVICE_KEY'
+// Supabase 클라이언트 설정 (환경변수 사용, 기본값 제거)
+const supabaseUrl = process.env.SUPABASE_URL
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error('Supabase 환경변수가 설정되지 않았습니다. SUPABASE_URL, SUPABASE_SERVICE_KEY를 확인하세요.')
+}
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 app.get('/', (req, res) => {
