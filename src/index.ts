@@ -75,31 +75,42 @@ app.post('/upload', upload.single('file'), (req, res) => {
         status = 'success'
         converted_file_url = pdf_url
       } else {
+        status = 'fail'
         errorMsg = 'pdf_url 없음'
       }
-      // n8n 웹훅 전송 (생략 가능)
-      const n8nWebhookUrl = 'https://n8n-n8n-ce-manidhgw6580ee84.sel4.cloudtype.app/webhook-test/38cc66c9-e609-4b96-84a5-b31ab56a4f67'
-      if (pdf_url || txt_url) {
-        await superagent.post(n8nWebhookUrl).send({ pdf_url, txt_url })
-        console.log('n8n 웹훅으로 변환 결과 전송 완료')
+      // n8n Webhook 전송 (실패해도 무관)
+      try {
+        const n8nWebhookUrl = 'https://n8n-n8n-ce-manidhgw6580ee84.sel4.cloudtype.app/webhook-test/38cc66c9-e609-4b96-84a5-b31ab56a4f67'
+        if (pdf_url || txt_url) {
+          await superagent.post(n8nWebhookUrl).send({ pdf_url, txt_url })
+          console.log('n8n 웹훅으로 변환 결과 전송 완료')
+        }
+      } catch (e) {
+        console.error('n8n Webhook 전송 실패:', e)
       }
     } catch (e: any) {
+      status = 'fail'
       errorMsg = e.message
-      console.error('외부 변환 API 호출 또는 n8n 웹훅 전송 실패:', e)
+      console.error('외부 변환 API 호출 실패:', e)
     } finally {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
-      // Supabase에 결과 저장
-      await supabase.from('컨버팅_테이블').insert([
-        {
-          document_id,
-          converted_at,
-          document_name,
-          status,
-          converted_file_url,
-          retry_url,
-          error: errorMsg
-        }
-      ])
+      // Supabase에 결과 저장 (성공/실패 모두 기록)
+      try {
+        await supabase.from('컨버팅_테이블').insert([
+          {
+            document_id,
+            converted_at,
+            document_name,
+            status,
+            converted_file_url,
+            retry_url,
+            error: errorMsg
+          }
+        ])
+        console.log('Supabase에 변환 결과 저장 완료:', { document_id, status, converted_file_url, errorMsg })
+      } catch (dbErr: any) {
+        console.error('Supabase 저장 실패:', dbErr)
+      }
     }
   })()
 })
