@@ -129,7 +129,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
 
 // 변환 결과 리스트 조회 API
 app.get('/convert-results', async (req, res) => {
-  const { data, error } = await supabase.from('컨버팅_테이블').select('*').order('converted_at', { ascending: false }).limit(100)
+  const { data, error } = await supabase.from('컨버팅 테이블').select('*').order('converted_at', { ascending: false }).limit(100)
   if (error) {
     res.status(500).json({ success: false, error: error.message })
     return
