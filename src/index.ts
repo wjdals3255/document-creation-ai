@@ -6,6 +6,7 @@ import superagent from 'superagent'
 import pdfParse from 'pdf-parse'
 import { createClient } from '@supabase/supabase-js'
 import iconv from 'iconv-lite'
+import { v4 as uuidv4 } from 'uuid'
 
 const app = express()
 const PORT = process.env.PORT || 8080
@@ -54,11 +55,13 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   // 한글 파일명 복원 (latin1 → utf8)
   const document_name = require('iconv-lite').decode(Buffer.from(req.file.originalname, 'latin1'), 'utf8')
   console.log('originalname(fixed):', document_name)
-  // Storage 업로드 경로 생성
-  const storagePath = `uploads/${Date.now()}_${document_name}`
   const filePath = req.file.path
   const originalName = req.file.originalname
   const mimeType = req.file.mimetype
+  // Storage 업로드 경로 생성 (uuid + 확장자)
+  const ext = originalName.split('.').pop()
+  const safeFileName = `${uuidv4()}.${ext}`
+  const storagePath = `uploads/${safeFileName}`
 
   // Supabase Storage에 파일 업로드
   let retry_url = ''
