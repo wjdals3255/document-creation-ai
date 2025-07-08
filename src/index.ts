@@ -63,11 +63,10 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   // Supabase Storage에 파일 업로드
   let retry_url = ''
   try {
-    const { data: storageData, error: storageError } = await supabase.storage
-      .from('documents')
-      .upload(storagePath, fs.createReadStream(filePath), {
-        contentType: mimeType
-      })
+    const fileBuffer = fs.readFileSync(filePath)
+    const { data: storageData, error: storageError } = await supabase.storage.from('documents').upload(storagePath, fileBuffer, {
+      contentType: mimeType
+    })
     if (storageError) {
       console.error('Storage 업로드 실패:', storageError)
     } else {
