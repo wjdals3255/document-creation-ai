@@ -40,7 +40,7 @@ app.get('/', (req, res) => {
 })
 
 // 파일 업로드 및 외부 변환 API 호출
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ success: false, message: '파일이 업로드되지 않았습니다.' })
     return
@@ -54,12 +54,30 @@ app.post('/upload', upload.single('file'), (req, res) => {
   // 한글 파일명 복원 (latin1 → utf8)
   const document_name = require('iconv-lite').decode(Buffer.from(req.file.originalname, 'latin1'), 'utf8')
   console.log('originalname(fixed):', document_name)
-  // 원본 파일의 서버 내 경로를 retry_url로 저장
-  const retry_url = `/uploads/${req.file.filename}`
-  const converted_at = new Date().toISOString()
+  // Storage 업로드 경로 생성
+  const storagePath = `uploads/${Date.now()}_${document_name}`
   const filePath = req.file.path
   const originalName = req.file.originalname
   const mimeType = req.file.mimetype
+
+  // Supabase Storage에 파일 업로드
+  let retry_url = ''
+  try {
+    const { data: storageData, error: storageError } = await supabase.storage
+      .from('documents')
+      .upload(storagePath, fs.createReadStream(filePath), {
+        contentType: mimeType
+      })
+    if (storageError) {
+      console.error('Storage 업로드 실패:', storageError)
+    } else {
+      retry_url = `${process.env.SUPABASE_URL}/storage/v1/object/public/documents/${storagePath}`
+    }
+  } catch (e) {
+    console.error('Storage 업로드 예외:', e)
+  }
+
+  const converted_at = new Date().toISOString()
 
   res.json({ success: true, message: '파일 업로드 완료', document_id })
   ;(async () => {
