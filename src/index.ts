@@ -48,13 +48,8 @@ app.post('/upload', upload.single('file'), (req, res) => {
 
   // 고유 document_id 생성 (timestamp 기반)
   const document_id = Date.now()
-  // 한글 파일명 복원 (iconv-lite 사용)
-  let document_name = req.file.originalname
-  // 브라우저/환경에 따라 깨질 경우 복원 시도
-  if (/[^\u0000-\u007F]/.test(document_name) === false) {
-    // 한글이 하나도 없으면 복원 시도
-    document_name = iconv.decode(Buffer.from(req.file.originalname, 'binary'), 'utf8')
-  }
+  // 한글 파일명 복원 코드 제거, 그대로 저장
+  const document_name = req.file.originalname
   // 원본 파일의 서버 내 경로를 retry_url로 저장
   const retry_url = `/uploads/${req.file.filename}`
   const converted_at = new Date().toISOString()
