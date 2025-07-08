@@ -56,8 +56,9 @@ app.post('/upload', upload.single('file'), (req, res) => {
 
   res.json({ success: true, message: '파일 업로드 완료', document_id })
 
-  // 업로드된 파일명(raw) 로그 출력
+  // 업로드된 파일명(raw) 및 Buffer 로그 출력
   console.log('originalname(raw):', req.file.originalname)
+  console.log('originalname(buffer):', Buffer.from(req.file.originalname))
   const filePath = req.file.path
   const originalName = req.file.originalname
   const mimeType = req.file.mimetype
