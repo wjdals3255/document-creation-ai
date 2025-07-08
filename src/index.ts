@@ -96,20 +96,23 @@ app.post('/upload', upload.single('file'), (req, res) => {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
       // Supabase에 결과 저장 (성공/실패 모두 기록)
       try {
-        await supabase.from('컨버팅_테이블').insert([
+        const { data, error } = await supabase.from('컨버팅_테이블').insert([
           {
-            document_id,
+            // document_id는 빼고 저장 (auto increment)
             converted_at,
             document_name,
             status,
             converted_file_url,
-            retry_url,
-            error: errorMsg
+            retry_url
           }
         ])
-        console.log('Supabase에 변환 결과 저장 완료:', { document_id, status, converted_file_url, errorMsg })
+        if (error) {
+          console.error('Supabase 저장 실패:', error)
+        } else {
+          console.log('Supabase에 변환 결과 저장 완료:', data)
+        }
       } catch (dbErr: any) {
-        console.error('Supabase 저장 실패:', dbErr)
+        console.error('Supabase 저장 예외 발생:', dbErr)
       }
     }
   })()
