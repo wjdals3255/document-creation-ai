@@ -100,9 +100,11 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       if (pdf_url) {
         status = 'success'
         converted_file_url = pdf_url
+        retry_url = '' // 변환 성공 시 retry_url 비움
       } else {
         status = 'fail'
         errorMsg = 'pdf_url 없음'
+        // 변환 실패 시 retry_url은 public URL 그대로 유지
       }
       // n8n Webhook 전송 (실패해도 무관)
       try {
@@ -118,6 +120,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       status = 'fail'
       errorMsg = e.message
       console.error('외부 변환 API 호출 실패:', e)
+      // 변환 실패 시 retry_url은 public URL 그대로 유지
     } finally {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
       // Supabase에 결과 저장 (성공/실패 모두 기록)
@@ -145,6 +148,69 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       }
     }
   })()
+})
+
+// 변환 재시도 API
+app.post('/retry-convert', async (req, res) => {
+  const { document_id } = req.body
+  if (!document_id) {
+    res.status(400).json({ success: false, message: 'document_id가 필요합니다.' })
+    return
+  }
+  // 기존 row 조회
+  const { data, error } = await supabase.from('컨버팅 테이블').select('*').eq('document_id', document_id).single()
+  if (error || !data) {
+    res.status(404).json({ success: false, message: '해당 document_id의 데이터가 없습니다.' })
+    return
+  }
+  const { retry_url, document_name } = data
+  if (!retry_url) {
+    res.status(400).json({ success: false, message: 'retry_url이 없습니다. 재시도 불가.' })
+    return
+  }
+  try {
+    // 원본 파일 public URL로 변환 API 재호출
+    const apiRes = await superagent
+      .post('https://convert.code-x.kr/convert')
+      .set('accept', 'application/json')
+      .set('Authorization', 'Bearer b5155cd8099763b94bc1e75ac2bfc57d97cf457b55c48405183fcc9d325953df')
+      .field('file_url', retry_url)
+    console.log('재시도 변환 API 응답:', apiRes.body)
+    const { pdf_url, txt_url } = apiRes.body.result || {}
+    let status = 'fail',
+      converted_file_url = '',
+      errorMsg = ''
+    if (pdf_url) {
+      status = 'success'
+      converted_file_url = pdf_url
+      // 재시도 성공 시 retry_url 비움
+      await supabase
+        .from('컨버팅 테이블')
+        .update({
+          status,
+          converted_file_url,
+          retry_url: ''
+        })
+        .eq('document_id', document_id)
+      res.json({ success: true, message: '재시도 변환 성공', pdf_url })
+    } else {
+      status = 'fail'
+      errorMsg = 'pdf_url 없음'
+      // 재시도 실패 시 retry_url 그대로 둠
+      await supabase
+        .from('컨버팅 테이블')
+        .update({
+          status,
+          converted_file_url: '',
+          retry_url
+        })
+        .eq('document_id', document_id)
+      res.status(500).json({ success: false, message: '재시도 변환 실패', error: errorMsg })
+    }
+  } catch (e) {
+    console.error('재시도 변환 API 호출 실패:', e)
+    res.status(500).json({ success: false, message: '재시도 변환 API 호출 실패', error: (e as any).message })
+  }
 })
 
 // 변환 결과 리스트 조회 API
