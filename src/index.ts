@@ -7,6 +7,7 @@ import pdfParse from 'pdf-parse'
 import { createClient } from '@supabase/supabase-js'
 import iconv from 'iconv-lite'
 import { v4 as uuidv4 } from 'uuid'
+import axios from 'axios'
 
 const app = express()
 const PORT = process.env.PORT || 8080
@@ -237,6 +238,26 @@ app.post('/extract-text', upload.single('file'), async (req, res) => {
     res.status(500).json({ success: false, message: '텍스트 추출 실패', detail: e.message })
   } finally {
     if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
+  }
+})
+
+// PDF URL에서 텍스트 추출 API
+app.post('/extract-text-from-url', async (req, res) => {
+  const { pdf_url } = req.body
+  if (!pdf_url) {
+    res.status(400).json({ success: false, message: 'pdf_url이 필요합니다.' })
+    return
+  }
+  try {
+    // 1. PDF 파일 다운로드 (Buffer)
+    const response = await axios.get(pdf_url, { responseType: 'arraybuffer' })
+    const pdfBuffer = Buffer.from(response.data)
+    // 2. pdf-parse로 텍스트 추출
+    const data = await pdfParse(pdfBuffer)
+    res.json({ success: true, text: data.text })
+  } catch (e) {
+    console.error('PDF 텍스트 추출 실패:', e)
+    res.status(500).json({ success: false, message: 'PDF 텍스트 추출 실패', error: (e as any).message })
   }
 })
 
