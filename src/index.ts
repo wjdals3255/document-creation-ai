@@ -87,17 +87,34 @@ const AI_PROMPT = `📌 목적:
 
 // AI 분석 함수
 async function analyzeTextWithAI(text: string): Promise<string> {
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4',
-    messages: [
-      { role: 'system', content: AI_PROMPT },
-      { role: 'user', content: `다음 문서를 분석하여 요청된 정보를 JSON 형태로 추출해주세요:\n\n${text}` }
-    ],
-    temperature: 0.1,
-    max_tokens: 3000,
-    response_format: { type: 'json_object' }
-  })
-  return completion.choices[0]?.message?.content || ''
+  try {
+    console.log('OpenAI API 호출 시작...')
+    console.log('입력 텍스트 길이:', text.length)
+    console.log('OpenAI API 키 확인:', process.env.OPENAI_API_KEY ? '설정됨' : '설정되지 않음')
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [
+        { role: 'system', content: AI_PROMPT },
+        { role: 'user', content: `다음 문서를 분석하여 요청된 정보를 JSON 형태로 추출해주세요:\n\n${text}` }
+      ],
+      temperature: 0.1,
+      max_tokens: 3000,
+      response_format: { type: 'json_object' }
+    })
+
+    console.log('OpenAI API 응답 받음')
+    console.log('응답 choices 개수:', completion.choices.length)
+
+    const result = completion.choices[0]?.message?.content || ''
+    console.log('AI 분석 결과 원본:', result)
+
+    return result
+  } catch (error) {
+    console.error('AI 분석 함수 내부 오류:', error)
+    console.error('오류 상세:', JSON.stringify(error, null, 2))
+    throw error
+  }
 }
 
 app.get('/', (req, res) => {
@@ -167,11 +184,18 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         retry_url = '' // 변환 성공 시 retry_url 비움
         // PDF 텍스트 추출
         extracted_text = await extractTextFromPdfUrl(pdf_url)
+        console.log('PDF 텍스트 추출 완료, 길이:', extracted_text.length)
+        console.log('추출된 텍스트 샘플(앞 200자):', extracted_text.slice(0, 200))
+
         // AI 분석
         try {
+          console.log('AI 분석 시작...')
           ai_result = await analyzeTextWithAI(extracted_text)
+          console.log('AI 분석 완료, 결과 길이:', ai_result.length)
+          console.log('AI 분석 결과:', ai_result)
         } catch (aiErr) {
           console.error('AI 분석 실패:', aiErr)
+          console.error('AI 분석 실패 상세:', JSON.stringify(aiErr, null, 2))
           ai_result = ''
         }
       } else {
