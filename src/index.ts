@@ -50,9 +50,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
   // 고유 document_id 생성 (timestamp 기반)
   const document_id = Date.now()
-  // 업로드된 파일명(raw) 및 Buffer 로그 출력
-  // console.log('originalname(raw):', req.file.originalname)
-  // console.log('originalname(buffer):', Buffer.from(req.file.originalname))
+
   // 한글 파일명 복원 (latin1 → utf8)
   const document_name = require('iconv-lite').decode(Buffer.from(req.file.originalname, 'latin1'), 'utf8')
   // console.log('originalname(fixed):', document_name)
@@ -86,7 +84,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   ;(async () => {
     let status = 'fail',
       converted_file_url = '',
-      errorMsg = ''
+      errorMsg = '',
+      extracted_text = ''
     try {
       const apiRes = await superagent
         .post('https://convert.code-x.kr/convert')
@@ -102,21 +101,14 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         status = 'success'
         converted_file_url = pdf_url
         retry_url = '' // 변환 성공 시 retry_url 비움
+        // PDF 텍스트 추출
+        extracted_text = await extractTextFromPdfUrl(pdf_url)
       } else {
         status = 'fail'
         errorMsg = 'pdf_url 없음'
         // 변환 실패 시 retry_url은 public URL 그대로 유지
       }
-      // n8n Webhook 전송 (실패해도 무관)
-      try {
-        const n8nWebhookUrl = 'https://n8n-n8n-ce-manidhgw6580ee84.sel4.cloudtype.app/webhook-test/38cc66c9-e609-4b96-84a5-b31ab56a4f67'
-        if (pdf_url || txt_url) {
-          await superagent.post(n8nWebhookUrl).send({ pdf_url, txt_url })
-          console.log('n8n 웹훅으로 변환 결과 전송 완료')
-        }
-      } catch (e) {
-        console.error('n8n Webhook 전송 실패:', e)
-      }
+      // n8n Webhook 연동 코드 완전 제거
     } catch (e: any) {
       status = 'fail'
       errorMsg = e.message
@@ -130,12 +122,12 @@ app.post('/upload', upload.single('file'), async (req, res) => {
           .from('컨버팅 테이블')
           .insert([
             {
-              // document_id는 빼고 저장 (auto increment)
               converted_at,
               document_name,
               status,
               converted_file_url,
-              retry_url
+              retry_url,
+              extracted_text
             }
           ])
           .select()
@@ -240,6 +232,14 @@ app.post('/extract-text', upload.single('file'), async (req, res) => {
     if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
   }
 })
+
+// PDF URL에서 텍스트 추출 함수
+async function extractTextFromPdfUrl(pdfUrl: string) {
+  const response = await axios.get(pdfUrl, { responseType: 'arraybuffer' })
+  const pdfBuffer = Buffer.from(response.data)
+  const data = await pdfParse(pdfBuffer)
+  return data.text
+}
 
 // PDF URL에서 텍스트 추출 API
 app.post('/extract-text-from-url', async (req, res) => {
