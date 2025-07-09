@@ -51,11 +51,11 @@ app.post('/upload', upload.single('file'), async (req, res) => {
   // 고유 document_id 생성 (timestamp 기반)
   const document_id = Date.now()
   // 업로드된 파일명(raw) 및 Buffer 로그 출력
-  console.log('originalname(raw):', req.file.originalname)
-  console.log('originalname(buffer):', Buffer.from(req.file.originalname))
+  // console.log('originalname(raw):', req.file.originalname)
+  // console.log('originalname(buffer):', Buffer.from(req.file.originalname))
   // 한글 파일명 복원 (latin1 → utf8)
   const document_name = require('iconv-lite').decode(Buffer.from(req.file.originalname, 'latin1'), 'utf8')
-  console.log('originalname(fixed):', document_name)
+  // console.log('originalname(fixed):', document_name)
   const filePath = req.file.path
   const originalName = req.file.originalname
   const mimeType = req.file.mimetype
@@ -254,6 +254,7 @@ app.post('/extract-text-from-url', async (req, res) => {
     const pdfBuffer = Buffer.from(response.data)
     // 2. pdf-parse로 텍스트 추출
     const data = await pdfParse(pdfBuffer)
+    console.log('PDF 텍스트 추출 결과(앞 500자):', data.text.slice(0, 500))
     res.json({ success: true, text: data.text })
   } catch (e) {
     console.error('PDF 텍스트 추출 실패:', e)
