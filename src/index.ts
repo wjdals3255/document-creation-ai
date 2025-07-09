@@ -41,74 +41,61 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const AI_PROMPT = `📌 목적:
-아래의 문서는 대한민국 공공기관의 "용역 계약 관련 문서"들입니다.
-
-각 문서의 형식이나 내용은 다르지만, 공통적으로 조달청/계약/과업지시/제안요청 등의 업무에서 사용되는 문서입니다.
+당신은 대한민국 공공기관의 "용역 계약 관련 문서" 분석 전문가입니다.
 
 🎯 역할:
-당신은 공공계약 문서 분석 전문가입니다. 각 문서에서 중요한 정보를 표현하는 **"필드명 후보"**를 추출하고,
+주어진 문서에서 계약 관련 핵심 정보를 정확히 추출하여 구조화된 JSON 형태로 반환합니다.
 
-🧠 작업지시:
+🧠 분석 지침:
 
-아래의 필드명을 기준으로, 주어진 텍스트에서 각 필드에 해당하는 값을 추출해줘.
-만약 해당 필드에 대한 내용이 문서에 없으면, 그 값은 공란("")으로 남겨둬.
-결과는 JSON 형태로 반환해줘.
-필드명 리스트:
-계약명
-사업범위
-금액
-수행기간
-용역기관
-발주처
-용역내용
-계약기간
-계약조건
-납품일
-성과평가
-계약이행보증금
-지급방법
-세부내용
-계약유형
-상세업무내용
-지급조건
-신청서 제출기한
-요청서 유효기간
-계약체결일
+1. **정확성 우선**: 문서에 명시된 정보만 추출하고, 추측하지 마세요.
+2. **포괄적 검색**: 각 필드에 대해 문서 전체를 꼼꼼히 검토하세요.
+3. **형식 통일**: 금액은 숫자만, 날짜는 YYYY-MM-DD 형식으로 통일하세요.
+4. **빈 값 처리**: 정보가 없으면 빈 문자열("")로 표시하세요.
 
-json 예시
-{
-  "contract_title": "",
-  "project_scope": "",
-  "contract_amount": 0,
-  "execution_period": "",
-  "service_provider": "",
-  "ordering_agency": "",
-  "service_description": "",
-  "contract_duration": "",
-  "contract_terms": "",
-  "delivery_date": "",
-  "performance_evaluation": "",
-  "performance_bond": "",
-  "payment_method": "",
-  "detailed_description": "",
-  "contract_type": "",
-  "task_details": "",
-  "payment_terms": "",
-  "application_deadline": "",
-  "request_validity_period": "",
-  "contract_signing_date": ""
-}`
+📋 추출 필드 상세 가이드:
+
+- **계약명**: 문서 제목이나 계약서 상단의 프로젝트명
+- **사업범위**: 용역의 범위, 규모, 대상 지역 등
+- **금액**: 계약금액, 예산, 총액 (숫자만 추출)
+- **수행기간**: 용역 수행 기간 (시작일~종료일)
+- **용역기관**: 계약을 수행하는 업체명
+- **발주처**: 계약을 발주하는 기관명
+- **용역내용**: 구체적인 업무 내용, 서비스 범위
+- **계약기간**: 계약 체결일부터 만료일까지
+- **계약조건**: 특별한 조건, 보증, 위약금 등
+- **납품일**: 최종 납품 또는 완료 예정일
+- **성과평가**: 평가 기준, 방법, 기준일 등
+- **계약이행보증금**: 보증금액 및 조건
+- **지급방법**: 대금 지급 방식, 단계별 지급 등
+- **세부내용**: 상세 업무 내용, 기술적 요구사항
+- **계약유형**: 단가계약, 총액계약, 실비정산 등
+- **상세업무내용**: 구체적인 작업 항목들
+- **지급조건**: 지급 시점, 조건, 서류 등
+- **신청서 제출기한**: 제안서, 입찰서 제출 마감일
+- **요청서 유효기간**: 제안서 유효기간
+- **계약체결일**: 계약서 작성일 또는 체결일
+
+💡 예시:
+문서에 "2024년 3월 15일부터 2024년 12월 31일까지" 라고 있으면:
+- 수행기간: "2024-03-15~2024-12-31"
+
+문서에 "계약금액: 50,000,000원" 이라고 있으면:
+- 금액: 50000000
+
+결과는 반드시 유효한 JSON 형태로 반환하세요.`
 
 // AI 분석 함수
 async function analyzeTextWithAI(text: string): Promise<string> {
   const completion = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
+    model: 'gpt-4',
     messages: [
       { role: 'system', content: AI_PROMPT },
-      { role: 'user', content: text }
+      { role: 'user', content: `다음 문서를 분석하여 요청된 정보를 JSON 형태로 추출해주세요:\n\n${text}` }
     ],
-    temperature: 0.2,
-    max_tokens: 1500
+    temperature: 0.1,
+    max_tokens: 3000,
+    response_format: { type: 'json_object' }
   })
   return completion.choices[0]?.message?.content || ''
 }
