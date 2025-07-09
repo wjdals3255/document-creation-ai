@@ -99,8 +99,8 @@ async function analyzeTextWithAI(text: string): Promise<string> {
         { role: 'user', content: `다음 문서를 분석하여 요청된 정보를 JSON 형태로 추출해주세요:\n\n${text}` }
       ],
       temperature: 0.1,
-      max_tokens: 3000,
-      response_format: { type: 'json_object' }
+      max_tokens: 3000
+      // response_format: { type: "json_object" } // 지원하지 않으므로 제거
     })
 
     console.log('OpenAI API 응답 받음')
@@ -230,7 +230,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         if (error) {
           console.error('Supabase 저장 실패:', error, JSON.stringify(error, null, 2))
         } else {
-          console.log('Supabase에 변환 결과 저장 완료:', data)
+          console.log('Supabase에 변환 결과 저장 완료:')
         }
       } catch (dbErr: any) {
         console.error('Supabase 저장 예외 발생:', dbErr)
