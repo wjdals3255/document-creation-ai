@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js'
 import iconv from 'iconv-lite'
 import { v4 as uuidv4 } from 'uuid'
 import axios from 'axios'
+import { OpenAI } from 'openai'
 
 const app = express()
 const PORT = process.env.PORT || 8080
@@ -36,6 +37,81 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Supabase 환경변수가 설정되지 않았습니다. SUPABASE_URL, SUPABASE_SERVICE_KEY를 확인하세요.')
 }
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+const AI_PROMPT = `📌 목적:
+아래의 문서는 대한민국 공공기관의 "용역 계약 관련 문서"들입니다.
+
+각 문서의 형식이나 내용은 다르지만, 공통적으로 조달청/계약/과업지시/제안요청 등의 업무에서 사용되는 문서입니다.
+
+🎯 역할:
+당신은 공공계약 문서 분석 전문가입니다. 각 문서에서 중요한 정보를 표현하는 **"필드명 후보"**를 추출하고,
+
+🧠 작업지시:
+
+아래의 필드명을 기준으로, 주어진 텍스트에서 각 필드에 해당하는 값을 추출해줘.
+만약 해당 필드에 대한 내용이 문서에 없으면, 그 값은 공란("")으로 남겨둬.
+결과는 JSON 형태로 반환해줘.
+필드명 리스트:
+계약명
+사업범위
+금액
+수행기간
+용역기관
+발주처
+용역내용
+계약기간
+계약조건
+납품일
+성과평가
+계약이행보증금
+지급방법
+세부내용
+계약유형
+상세업무내용
+지급조건
+신청서 제출기한
+요청서 유효기간
+계약체결일
+
+json 예시
+{
+  "contract_title": "",
+  "project_scope": "",
+  "contract_amount": 0,
+  "execution_period": "",
+  "service_provider": "",
+  "ordering_agency": "",
+  "service_description": "",
+  "contract_duration": "",
+  "contract_terms": "",
+  "delivery_date": "",
+  "performance_evaluation": "",
+  "performance_bond": "",
+  "payment_method": "",
+  "detailed_description": "",
+  "contract_type": "",
+  "task_details": "",
+  "payment_terms": "",
+  "application_deadline": "",
+  "request_validity_period": "",
+  "contract_signing_date": ""
+}`
+
+// AI 분석 함수
+async function analyzeTextWithAI(text: string): Promise<string> {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-3.5-turbo',
+    messages: [
+      { role: 'system', content: AI_PROMPT },
+      { role: 'user', content: text }
+    ],
+    temperature: 0.2,
+    max_tokens: 1500
+  })
+  return completion.choices[0]?.message?.content || ''
+}
 
 app.get('/', (req, res) => {
   res.send('서버가 정상적으로 실행 중입니다.')
@@ -85,7 +161,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     let status = 'fail',
       converted_file_url = '',
       errorMsg = '',
-      extracted_text = ''
+      extracted_text = '',
+      ai_result = ''
     try {
       const apiRes = await superagent
         .post('https://convert.code-x.kr/convert')
@@ -103,6 +180,13 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         retry_url = '' // 변환 성공 시 retry_url 비움
         // PDF 텍스트 추출
         extracted_text = await extractTextFromPdfUrl(pdf_url)
+        // AI 분석
+        try {
+          ai_result = await analyzeTextWithAI(extracted_text)
+        } catch (aiErr) {
+          console.error('AI 분석 실패:', aiErr)
+          ai_result = ''
+        }
       } else {
         status = 'fail'
         errorMsg = 'pdf_url 없음'
@@ -127,7 +211,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
               status,
               converted_file_url,
               retry_url,
-              extracted_text
+              extracted_text,
+              ai_result
             }
           ])
           .select()
