@@ -437,13 +437,13 @@ async function getEmbeddingFromAIResult(ai_result: any): Promise<number[]> {
   return embeddingRes.data[0].embedding
 }
 
-// 예시: 변환 후 콘솔 출력 (실제 Qdrant 연동은 추후 추가)
-// (예시로 /vectorize API 추가)
+// /vectorize 라우트 (테스트용, 필요시 삭제 가능)
 app.post('/vectorize', async (req, res) => {
   try {
     const { ai_result } = req.body
     if (!ai_result) {
-      return res.status(400).json({ success: false, message: 'ai_result가 필요합니다.' })
+      res.status(400).json({ success: false, message: 'ai_result가 필요합니다.' })
+      return
     }
     const vector = await getEmbeddingFromAIResult(ai_result)
     console.log('생성된 벡터:', vector.slice(0, 10), '...') // 앞 10개만 출력
@@ -454,6 +454,7 @@ app.post('/vectorize', async (req, res) => {
   }
 })
 
+// 반드시 마지막에 위치!
 app.listen(PORT, () => {
   console.log(`서버가 포트 ${PORT}에서 실행 중입니다.`)
 })
