@@ -287,7 +287,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
                   id: document_id,
                   vector: vector,
                   payload: {
-                    ...JSON.parse(typeof ai_result === 'string' ? ai_result : JSON.stringify(ai_result)),
+                    ...JSON.parse(typeof ai_result === 'string' ? cleanJsonString(ai_result) : JSON.stringify(ai_result)),
                     document_id,
                     document_name
                   }
@@ -435,6 +435,15 @@ async function getEmbeddingFromAIResult(ai_result: any): Promise<number[]> {
     input: JSON.stringify(ai_result)
   })
   return embeddingRes.data[0].embedding
+}
+
+// 코드블록 제거 함수 추가
+function cleanJsonString(str: string): string {
+  return str
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```$/i, '')
+    .trim()
 }
 
 // /vectorize 라우트 (테스트용, 필요시 삭제 가능)
