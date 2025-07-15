@@ -281,22 +281,23 @@ app.post('/upload', upload.single('file'), async (req, res) => {
           // === Qdrant 벡터 변환 및 업로드 ===
           try {
             const vector = await getEmbeddingFromAIResult(ai_result)
-            await qdrant.upsert('documents', {
-              points: [
-                {
-                  id: document_id,
-                  vector: vector,
-                  payload: {
-                    ...JSON.parse(typeof ai_result === 'string' ? cleanJsonString(ai_result) : JSON.stringify(ai_result)),
-                    document_id,
-                    document_name
-                  }
-                }
-              ]
-            })
-            console.log('Qdrant 업로드 완료')
+            console.log('생성된 벡터(앞 10개):', vector.slice(0, 10), '...')
+            // await qdrant.upsert('documents', {
+            //   points: [
+            //     {
+            //       id: document_id,
+            //       vector: vector,
+            //       payload: {
+            //         ...JSON.parse(typeof ai_result === 'string' ? cleanJsonString(ai_result) : JSON.stringify(ai_result)),
+            //         document_id,
+            //         document_name
+            //       }
+            //     }
+            //   ]
+            // })
+            // console.log('Qdrant 업로드 완료')
           } catch (e) {
-            console.error('Qdrant 업로드 실패:', e)
+            console.error('벡터 변환 실패:', e)
           }
           // =============================
         }
