@@ -9,6 +9,7 @@ import iconv from 'iconv-lite'
 import { v4 as uuidv4 } from 'uuid'
 import axios from 'axios'
 import { OpenAI } from 'openai'
+import jwt from 'jsonwebtoken'
 
 const app = express()
 const PORT = process.env.PORT || 8080
@@ -39,6 +40,21 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+const ADMIN_ID = process.env.ADMIN_ID
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+const JWT_SECRET = process.env.JWT_SECRET || 'changeme-secret-key'
+
+app.post('/login', (req, res) => {
+  const { username, password } = req.body
+  if (username === ADMIN_ID && password === ADMIN_PASSWORD) {
+    // JWT 토큰 발급 (1시간 유효)
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '1h' })
+    res.json({ success: true, token })
+  } else {
+    res.status(401).json({ success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' })
+  }
+})
 
 const AI_PROMPT = `너는 대한민국 지방자치단체의 공공입찰공고문을 분석하는 AI 문서 분석 도우미야.
 
