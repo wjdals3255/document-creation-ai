@@ -11,6 +11,15 @@ import axios from 'axios'
 import { OpenAI } from 'openai'
 import jwt from 'jsonwebtoken'
 
+// Qdrant 연동을 위한 SDK import
+import { QdrantClient } from '@qdrant/js-client-rest'
+
+// Qdrant 클라이언트 생성 (외부 서버 주소/컬렉션명은 실제 값으로 수정 필요)
+const qdrant = new QdrantClient({
+  url: process.env.QDRANT_URL || 'https://your-qdrant-server.com', // 환경변수 또는 실제 주소
+  apiKey: process.env.QDRANT_API_KEY // 필요시
+})
+
 const app = express()
 const PORT = process.env.PORT || 8080
 
@@ -269,6 +278,27 @@ app.post('/upload', upload.single('file'), async (req, res) => {
           console.error('Supabase 저장 실패:', error, JSON.stringify(error, null, 2))
         } else {
           console.log('Supabase에 변환 결과 저장 완료:')
+          // === Qdrant 벡터 변환 및 업로드 ===
+          try {
+            const vector = await getEmbeddingFromAIResult(ai_result)
+            await qdrant.upsert('documents', {
+              points: [
+                {
+                  id: document_id,
+                  vector: vector,
+                  payload: {
+                    ...JSON.parse(typeof ai_result === 'string' ? ai_result : JSON.stringify(ai_result)),
+                    document_id,
+                    document_name
+                  }
+                }
+              ]
+            })
+            console.log('Qdrant 업로드 완료')
+          } catch (e) {
+            console.error('Qdrant 업로드 실패:', e)
+          }
+          // =============================
         }
       } catch (dbErr: any) {
         console.error('Supabase 저장 예외 발생:', dbErr)
@@ -393,6 +423,34 @@ app.post('/extract-text-from-url', async (req, res) => {
   } catch (e) {
     console.error('PDF 텍스트 추출 실패:', e)
     res.status(500).json({ success: false, message: 'PDF 텍스트 추출 실패', error: (e as any).message })
+  }
+})
+
+// ai_result를 벡터로 변환하는 함수 (OpenAI Embedding)
+async function getEmbeddingFromAIResult(ai_result: any): Promise<number[]> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  // ai_result를 문자열로 변환하여 임베딩 생성
+  const embeddingRes = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: JSON.stringify(ai_result)
+  })
+  return embeddingRes.data[0].embedding
+}
+
+// 예시: 변환 후 콘솔 출력 (실제 Qdrant 연동은 추후 추가)
+// (예시로 /vectorize API 추가)
+app.post('/vectorize', async (req, res) => {
+  try {
+    const { ai_result } = req.body
+    if (!ai_result) {
+      return res.status(400).json({ success: false, message: 'ai_result가 필요합니다.' })
+    }
+    const vector = await getEmbeddingFromAIResult(ai_result)
+    console.log('생성된 벡터:', vector.slice(0, 10), '...') // 앞 10개만 출력
+    res.json({ success: true, vector })
+  } catch (e: any) {
+    console.error('벡터 변환 실패:', e)
+    res.status(500).json({ success: false, message: '벡터 변환 실패', detail: e.message })
   }
 })
 

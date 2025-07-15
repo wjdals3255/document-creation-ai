@@ -12,6 +12,7 @@
     "vercel-build": "yarn build"
   },
   "dependencies": {
+    "@qdrant/js-client-rest": "^1.14.1",
     "@supabase/supabase-js": "^2.50.3",
     "@types/express": "^5.0.3",
     "adm-zip": "^0.5.16",
