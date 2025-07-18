@@ -52,6 +52,9 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
+// n8n Webhook URL 상수 선언
+const N8N_WEBHOOK_URL = 'https://n8n-n8n-ce-manidhgw6580ee84.sel4.cloudtype.app/webhook-test/897ac415-ad34-4510-a87c-380fb4bf3faf'
+
 const ADMIN_ID = process.env.ADMIN_ID
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme-secret-key'
@@ -223,6 +226,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
           filename: originalName,
           contentType: mimeType
         })
+        .field('webhook_url', N8N_WEBHOOK_URL)
       console.log('외부 변환 API 응답:', apiRes.body)
       const { pdf_url, txt_url } = apiRes.body.result || {}
       if (pdf_url) {
