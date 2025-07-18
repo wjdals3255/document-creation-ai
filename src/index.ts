@@ -238,6 +238,19 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         console.log('PDF 텍스트 추출 완료, 길이:', extracted_text.length)
         console.log('추출된 텍스트 샘플(앞 200자):', extracted_text.slice(0, 200))
 
+        // n8n 웹훅으로 결과 POST
+        try {
+          await axios.post(N8N_WEBHOOK_URL, {
+            pdf_url,
+            txt_url,
+            document_id,
+            document_name
+          })
+          console.log('n8n 웹훅으로 결과 전송 완료')
+        } catch (e) {
+          console.error('n8n 웹훅 전송 실패:', e)
+        }
+
         // AI 분석
         try {
           console.log('AI 분석 시작...')
